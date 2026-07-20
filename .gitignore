@@ -1,0 +1,5 @@
+# nothing built here yet; keep OS/editor cruft out
+Thumbs.db
+Desktop.ini
+.vscode/
+*.log
