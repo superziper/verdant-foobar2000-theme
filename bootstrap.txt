@@ -1,21 +1,16 @@
 'use strict';
 // ============================================================
-// foobar2000 x Spotify  --  panel bootstrap
+// foobar2000 x Spotify  --  JSplitter dev-loop bootstrap
 // ------------------------------------------------------------
-// Paste THIS (the whole block) into the JavaScript Panel's
-// Configuration editor, then press Ctrl+S.
+// OPTIONAL. Use this ONLY after the paste-inline PoC works and
+// you want the fast edit->reload loop.
 //
-// It does three things:
-//   1. names the script,
-//   2. loads the component's bundled helpers (RGB, Scale, fonts,
-//      DWRITE_* constants),
-//   3. loads OUR app from the foobar profile scripts folder.
+// Instead of pasting main.js into the panel, paste THIS one line.
+// It loads our app from the profile scripts folder that
+// deploy.ps1 writes to. Then iterate by editing src/main.js +
+// running deploy.ps1, and reload the panel (right-click > Reload).
 //
-// You paste this ONCE. After that, iterate by editing
-// src/main.js and running deploy.ps1 -- this bootstrap keeps
-// pulling the latest main.js from disk on every panel reload.
+// main.js already calls window.DefineScript, so we don't here.
 // ============================================================
 
-window.DefineScript('Spotify for foobar2000', { author: 'zulvanavivi' });
-include(fb.ComponentPath + 'helpers.js');
 include(fb.ProfilePath + 'scripts\\foobar-spotify\\main.js');

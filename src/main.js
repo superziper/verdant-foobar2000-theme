@@ -1,114 +1,106 @@
 'use strict';
 
 /* =============================================================
- * foobar2000 x Spotify  --  Phase 1 PoC (main.js)
+ * foobar2000 x Spotify  --  Phase 1 PoC (main.js)  [JSplitter build]
  * -------------------------------------------------------------
  * Purpose: prove our JavaScript actually drives the foobar2000
  * window and can read live playback data. This is NOT the skin;
  * it is a deliberately loud "test card".
  *
- * Loaded by the inline panel bootstrap (see ../bootstrap.txt),
- * which first includes the component's helpers.js (RGB, Scale,
- * CreateFontString, DWRITE_* constants) and then this file.
+ * Runs in a JSplitter (foo_uie_jsplitter) panel under Columns UI,
+ * GDI+ draw mode (the default). Classic Spider-Monkey-style API.
  *
- * Dev loop: edit this file -> run deploy.ps1 -> reload the panel
- * (right-click > Reload, or Ctrl+S in its config editor).
+ * Two ways to load it:
+ *   A) Paste this whole file into the JSplitter panel's config
+ *      (simplest -- do this first to prove the pipeline).
+ *   B) Dev loop: keep it on disk, deploy.ps1 copies it into the
+ *      profile, and a tiny bootstrap include()s it (see bootstrap.txt).
  * ============================================================= */
 
+window.DefineScript('Spotify for foobar2000', { author: 'zulvanavivi', options: { grab_focus: false } });
+
+// --- colour helper: pack r,g,b into an opaque ARGB int ---
+function C(r, g, b) { return (0xff000000 | (r << 16) | (g << 8) | b); }
+
 // --- Spotify palette (subset, PoC only) ---
-const SPOT = {
-    base:  RGB(18, 18, 18),   // #121212 background
-    green: RGB(29, 185, 84),  // #1DB954 accent
-    white: RGB(255, 255, 255),// #FFFFFF primary text
-    grey:  RGB(179, 179, 179) // #B3B3B3 secondary text
+var SPOT = {
+    base:  C(18, 18, 18),   // #121212 background
+    green: C(29, 185, 84),  // #1DB954 accent
+    white: C(255, 255, 255),// #FFFFFF primary text
+    grey:  C(179, 179, 179) // #B3B3B3 secondary text
 };
 
-// --- Fonts (Size gets DPI-scaled inside CreateFontString) ---
-const FONT = {
-    brand: CreateFontString('Segoe UI', 15, true),
-    title: CreateFontString('Segoe UI', 26, true),
-    sub:   CreateFontString('Segoe UI', 15, false),
-    meta:  CreateFontString('Consolas', 12, false)
+// --- GdiDrawText format flags (Win32 DrawText) ---
+var DT_LEFT = 0x0, DT_CENTER = 0x1, DT_RIGHT = 0x2, DT_VCENTER = 0x4,
+    DT_SINGLELINE = 0x20, DT_NOPREFIX = 0x800, DT_END_ELLIPSIS = 0x8000;
+var FMT_L = DT_LEFT  | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+var FMT_R = DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
+
+// --- fonts: create ONCE (never inside on_paint) ---
+var FONT = {
+    brand: gdi.Font('Segoe UI', 15, 1), // 1 = bold
+    title: gdi.Font('Segoe UI', 26, 1),
+    sub:   gdi.Font('Segoe UI', 15, 0), // 0 = regular
+    meta:  gdi.Font('Consolas', 12, 0)
 };
 
-// --- Title-format objects: compiled once, evaluated per paint ---
-const TF = {
+// --- title-format objects: compile ONCE, evaluate per paint ---
+var TF = {
     title:  fb.TitleFormat('[%title%]'),
     artist: fb.TitleFormat('[%artist%]'),
     album:  fb.TitleFormat('[%album%]'),
     clock:  fb.TitleFormat('[%playback_time%]  /  [%length%]')
 };
 
-// Thin wrapper around the (long) WriteTextSimple signature.
-function drawText(gr, str, font, colour, x, y, w, h, align) {
-    gr.WriteTextSimple(
-        str, font, colour, x, y, w, h,
-        align,
-        DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-        DWRITE_WORD_WRAPPING_NO_WRAP,
-        DWRITE_TRIMMING_GRANULARITY_CHARACTER
-    );
-}
+// Panel size -- seed from window now, keep fresh in on_size().
+var W = window.Width;
+var H = window.Height;
 
-function nowPlaying() {
-    const m = playback.GetNowPlaying();
-    if (!m) return null;
-    return {
-        title:  TF.title.EvalWithMetadb(m),
-        artist: TF.artist.EvalWithMetadb(m),
-        album:  TF.album.EvalWithMetadb(m)
-    };
+function on_size(width, height) {
+    W = width;
+    H = height;
 }
-
-// ------------------------- callbacks -------------------------
 
 function on_paint(gr) {
-    const w = window.Width;
-    const h = window.Height;
-    const pad = Scale(24);
+    var pad = 24;
 
-    // 1) Base background -- proves we own the whole canvas.
-    gr.Clear(SPOT.base);
+    // 1) base background -- proves we own the whole canvas.
+    gr.FillSolidRect(0, 0, W, H, SPOT.base);
 
-    // 2) Green brand band across the top -- unmistakably ours.
-    const band = Scale(56);
-    gr.FillRectangle(0, 0, w, band, SPOT.green);
-    drawText(gr, 'foobar2000  x  Spotify   -   Phase 1 PoC',
-        FONT.brand, SPOT.base, pad, 0, w - pad * 2, band,
-        DWRITE_TEXT_ALIGNMENT_LEADING);
+    // 2) green brand band -- unmistakably ours.
+    var band = 56;
+    gr.FillSolidRect(0, 0, W, band, SPOT.green);
+    gr.GdiDrawText('foobar2000  x  Spotify   -   Phase 1 PoC',
+        FONT.brand, SPOT.base, pad, 0, W - pad * 2, band, FMT_L);
 
-    // 3) Live now-playing data -- proves we can read playback state.
-    const np = nowPlaying();
-    const cy = Math.round(h / 2) - Scale(40);
+    // 3) live now-playing data -- proves we can read playback state.
+    var cy = Math.round(H / 2) - 40;
+    if (fb.IsPlaying || fb.IsPaused) {
+        var title  = TF.title.Eval();
+        var artist = TF.artist.Eval();
+        var album  = TF.album.Eval();
 
-    if (np) {
-        drawText(gr, np.title, FONT.title, SPOT.white,
-            pad, cy, w - pad * 2, Scale(40), DWRITE_TEXT_ALIGNMENT_LEADING);
+        gr.GdiDrawText(title, FONT.title, SPOT.white, pad, cy, W - pad * 2, 40, FMT_L);
 
-        const line2 = [np.artist, np.album].filter(s => s.length).join('   -   ');
-        drawText(gr, line2, FONT.sub, SPOT.grey,
-            pad, cy + Scale(44), w - pad * 2, Scale(28), DWRITE_TEXT_ALIGNMENT_LEADING);
+        var line2 = [artist, album].filter(function (s) { return s && s.length; }).join('   -   ');
+        gr.GdiDrawText(line2, FONT.sub, SPOT.grey, pad, cy + 44, W - pad * 2, 28, FMT_L);
 
-        drawText(gr, TF.clock.Eval(), FONT.sub, SPOT.green,
-            pad, cy + Scale(76), w - pad * 2, Scale(28), DWRITE_TEXT_ALIGNMENT_LEADING);
+        gr.GdiDrawText(TF.clock.Eval(), FONT.sub, SPOT.green, pad, cy + 76, W - pad * 2, 28, FMT_L);
     } else {
-        drawText(gr, 'Nothing playing', FONT.title, SPOT.white,
-            pad, cy, w - pad * 2, Scale(40), DWRITE_TEXT_ALIGNMENT_LEADING);
-        drawText(gr, 'Press play in foobar2000 - this text updates live.',
-            FONT.sub, SPOT.grey,
-            pad, cy + Scale(44), w - pad * 2, Scale(28), DWRITE_TEXT_ALIGNMENT_LEADING);
+        gr.GdiDrawText('Nothing playing', FONT.title, SPOT.white, pad, cy, W - pad * 2, 40, FMT_L);
+        gr.GdiDrawText('Press play in foobar2000 - this text updates live.',
+            FONT.sub, SPOT.grey, pad, cy + 44, W - pad * 2, 28, FMT_L);
     }
 
-    // 4) Live panel size -- proves on_size() triggers a correct repaint.
-    drawText(gr, 'panel ' + w + ' x ' + h + ' px', FONT.meta, SPOT.grey,
-        pad, h - Scale(28), w - pad * 2, Scale(20), DWRITE_TEXT_ALIGNMENT_TRAILING);
+    // 4) live panel size -- proves on_size() feeds a correct repaint.
+    gr.GdiDrawText('panel ' + W + ' x ' + H + ' px', FONT.meta, SPOT.grey,
+        pad, H - 28, W - pad * 2, 20, FMT_R);
 }
 
-function on_size()               { window.Repaint(); }
-function on_playback_new_track() { window.Repaint(); }
-function on_playback_stop()      { window.Repaint(); }
-function on_playback_pause()     { window.Repaint(); }
-function on_playback_time()      { window.Repaint(); } // ~1 Hz -> live clock
+function on_playback_new_track(handle) { window.Repaint(); }
+function on_playback_stop(reason)      { window.Repaint(); }
+function on_playback_pause(state)      { window.Repaint(); }
+function on_playback_time(time)        { window.Repaint(); } // ~1 Hz -> live clock
 
-// Breadcrumb: visible in the JS Panel "Console" so we can confirm reloads.
-console.log('[foobar-spotify] PoC main.js loaded');
+// Breadcrumb: visible in foobar's console so we can confirm reloads.
+console.log('[foobar-spotify] JSplitter PoC main.js loaded');
