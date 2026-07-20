@@ -36,6 +36,9 @@ var DT_LEFT = 0x0, DT_CENTER = 0x1, DT_RIGHT = 0x2, DT_VCENTER = 0x4,
 var FMT_L = DT_LEFT  | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
 var FMT_R = DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
 
+// --- menu flag ---
+var MF_STRING = 0x0;
+
 // --- fonts: create ONCE (never inside on_paint) ---
 var FONT = {
     brand: gdi.Font('Segoe UI', 15, 1), // 1 = bold
@@ -92,9 +95,33 @@ function on_paint(gr) {
             FONT.sub, SPOT.grey, pad, cy + 44, W - pad * 2, 28, FMT_L);
     }
 
-    // 4) live panel size -- proves on_size() feeds a correct repaint.
+    // 4) usage hint (bottom-left) + live panel size (bottom-right).
+    gr.GdiDrawText('Left-click: controls & Preferences   -   Right-click: panel menu',
+        FONT.meta, SPOT.grey, pad, H - 28, W - pad * 2, 20, FMT_L);
     gr.GdiDrawText('panel ' + W + ' x ' + H + ' px', FONT.meta, SPOT.grey,
         pad, H - 28, W - pad * 2, 20, FMT_R);
+}
+
+// Left-click anywhere -> a small controls menu (this panel has no toolbar yet).
+function on_mouse_lbtn_up(x, y, mask) {
+    var m = window.CreatePopupMenu();
+    m.AppendMenuItem(MF_STRING, 1, (fb.IsPlaying && !fb.IsPaused) ? 'Pause' : 'Play');
+    m.AppendMenuItem(MF_STRING, 2, 'Next');
+    m.AppendMenuItem(MF_STRING, 3, 'Previous');
+    m.AppendMenuItem(MF_STRING, 4, 'Stop');
+    m.AppendMenuSeparator();
+    m.AppendMenuItem(MF_STRING, 10, 'Open foobar2000 Preferences…');
+    m.AppendMenuItem(MF_STRING, 11, 'Show Console');
+    var id = m.TrackPopupMenu(x, y);
+    switch (id) {
+        case 1:  fb.PlayOrPause(); break;
+        case 2:  fb.Next(); break;
+        case 3:  fb.Prev(); break;
+        case 4:  fb.Stop(); break;
+        case 10: fb.ShowPreferences(); break;
+        case 11: fb.ShowConsole(); break;
+    }
+    window.Repaint();
 }
 
 function on_playback_new_track(handle) { window.Repaint(); }
