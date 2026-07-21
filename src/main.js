@@ -125,10 +125,20 @@ function drawCover(gr,x,y,sz,rad,h,seed){
   else if(rad>0){ gr.FillRoundRect(x,y,sz,sz,rad,rad,coverCol(seed)); }
   else { gr.FillSolidRect(x,y,sz,sz,coverCol(seed)); }
 }
+/* dominant colour of an album's art, for header gradients (cached; falls back to placeholder) */
+var hueCache={};
+function artHue(h,seed){
+  if(!h) return coverCol(seed);
+  var k=TF.albkey.EvalWithMetadb(h);
+  if(hueCache.hasOwnProperty(k)) return hueCache[k];
+  var col=coverCol(seed), img=getArt(h);
+  if(img){ try{ var s=img.GetColourScheme(1); if(s && s.length) col=s[0]; }catch(e){} }
+  hueCache[k]=col; return col;
+}
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={}, NP=null;
-var firstRow=0, hoverTrack=-1, mx=-1, my=-1;
+var firstRow=0, hoverTrack=-1, mx=-1, my=-1, drag=null, dragFrac=0;
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null;
 var rightTab='queue';
@@ -206,7 +216,7 @@ function drawPlaylist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
   var p=activePl();
   // header gradient wash (square top corners; polish later)
-  gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(coverCol(p.name),COL.base,0.35),COL.base,1.0);
+  gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawCover(gr,ax,ay,art,6,firstHandle(p.i),p.name);
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
@@ -307,8 +317,9 @@ function drawHome(gr,r){
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
-  gr.FillGradRect(r.x,r.y,r.w,220,90,blend(coverCol(viewArtist),COL.base,0.4),COL.base,1.0);
-  var art=150, ay=r.y+34, cover=artistAlbums.length?artistAlbums[0].handle:null;
+  var cover=artistAlbums.length?artistAlbums[0].handle:null;
+  gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
+  var art=150, ay=r.y+34;
   drawCover(gr,x0,ay,art,6,cover,viewArtist);
   var tx=x0+art+24, tw=w-art-24, songs=0;
   for(i=0;i<artistAlbums.length;i++) songs+=artistAlbums[i].tracks.length;
@@ -405,10 +416,10 @@ function drawBar(gr){
   ctrlBtn(gr,GLYPH.next,cxC+50,pcy,false,'next');
   ctrlBtn(gr,repMode===2?GLYPH.repeat1:GLYPH.repeat,cxC+92,pcy,repMode>0,'repeat');
   var sbW=Math.min(Math.round(W*0.34),520), sbX=cxC-sbW/2, sbY=by+54;
-  var len=fb.PlaybackLength, pos=len>0?fb.PlaybackTime/len:0;
+  var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
   gr.FillSolidRect(sbX,sbY,sbW,4,COL.seekbg);
   if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
-  tR(gr,fmtTime(fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
+  tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
   tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
   HB_SEEK={x0:sbX,y0:sbY-9,x1:sbX+sbW,y1:sbY+13,x:sbX,w:sbW};
   // right: volume + gear(prefs)
@@ -424,6 +435,12 @@ function drawBar(gr){
 }
 
 /* ------------------------- input ------------------------- */
+function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
+function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); window.Repaint(); } }
+function on_mouse_lbtn_down(x,y){
+  if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); window.Repaint(); return; }
+  if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
+}
 function doCtrl(act){
   if(act==='play') fb.PlayOrPause();
   else if(act==='next') fb.Next();
@@ -433,11 +450,11 @@ function doCtrl(act){
   window.Repaint();
 }
 function on_mouse_lbtn_up(x,y){
+  if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
+  if(drag==='vol'){ drag=null; return; }
   var i;
   for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; window.Repaint(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
-  if(HB_SEEK && inRect(x,y,HB_SEEK)){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*clamp01((x-HB_SEEK.x)/HB_SEEK.w); window.Repaint(); return; }
-  if(HB_VOL && inRect(x,y,HB_VOL)){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); window.Repaint(); return; }
   if(HB_PREFS && inRect(x,y,HB_PREFS)){ fb.ShowPreferences(); return; }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; window.Repaint(); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } window.Repaint(); return; } }
@@ -447,6 +464,8 @@ function on_mouse_lbtn_up(x,y){
 }
 function on_mouse_move(x,y){
   mx=x; my=y;
+  if(drag==='seek'){ dragFrac=seekFrac(x); window.Repaint(); return; }
+  if(drag==='vol'){ applyVol(x); return; }
   var h=-1;
   for(var i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ h=HB_TR[i].item; break; } }
   if(h!==hoverTrack){ hoverTrack=h; window.Repaint(); }
