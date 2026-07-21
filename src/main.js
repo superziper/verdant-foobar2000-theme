@@ -52,6 +52,7 @@ var TF = {
   album:fb.TitleFormat('[%album%]'), len:fb.TitleFormat('%length%'),
   npTitle:fb.TitleFormat('[%title%]'), npArtist:fb.TitleFormat('[%artist%]')
 };
+TF.albkey=fb.TitleFormat('%album artist% - %album%');
 
 /* ------------------------- DrawText flags ------------------------- */
 var DT_L = 0x4|0x20|0x800|0x8000;        // left + vcenter + singleline + noprefix + end-ellipsis
@@ -73,8 +74,27 @@ function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Ma
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
 
+/* ------------------------- album art (lazy sync cache, keyed by album) ------------------------- */
+var artCache={};
+function getArt(h){
+  if(!h) return null;
+  var k=TF.albkey.EvalWithMetadb(h);
+  if(artCache.hasOwnProperty(k)) return artCache[k];
+  var img=null;
+  try{ img=utils.GetAlbumArtV2(h,0); if(img&&img.Width>500){ img=img.Resize(500,Math.round(img.Height*500/img.Width),2); } }catch(e){ img=null; }
+  artCache[k]=img||null;
+  return artCache[k];
+}
+function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:null; }
+function drawCover(gr,x,y,sz,rad,h,seed){
+  var img=getArt(h);
+  if(img){ gr.DrawImage(img,x,y,sz,sz,0,0,img.Width,img.Height,0,255); }
+  else if(rad>0){ gr.FillRoundRect(x,y,sz,sz,rad,rad,coverCol(seed)); }
+  else { gr.FillSolidRect(x,y,sz,sz,coverCol(seed)); }
+}
+
 /* ------------------------- state ------------------------- */
-var W=window.Width, H=window.Height, R={};
+var W=window.Width, H=window.Height, R={}, NP=null;
 var firstRow=0, hoverTrack=-1, mx=-1, my=-1;
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var rightTab='queue';
@@ -104,6 +124,7 @@ function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c);
 
 function on_paint(gr){
   gr.SetSmoothingMode(2);
+  NP=(fb.IsPlaying||fb.IsPaused)?fb.GetNowPlaying():null;
   gr.FillSolidRect(0,0,W,H,COL.black);
   drawNav(gr);
   drawMain(gr);
@@ -130,7 +151,7 @@ function drawNav(gr){
     var isA=(i===active);
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
     var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
-    gr.FillRoundRect(cx,cy,cs,cs,4,4,coverCol(plman.GetPlaylistName(i)));
+    drawCover(gr,cx,cy,cs,4,firstHandle(i),plman.GetPlaylistName(i));
     var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
     tL(gr,plman.GetPlaylistName(i),FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
     tL(gr,'Playlist · '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
@@ -145,7 +166,7 @@ function drawMain(gr){
   // header gradient wash (square top corners; polish later)
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(coverCol(p.name),COL.base,0.35),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
-  gr.FillRoundRect(ax,ay,art,art,6,6,coverCol(p.name));
+  drawCover(gr,ax,ay,art,6,firstHandle(p.i),p.name);
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
@@ -186,7 +207,7 @@ function drawMain(gr){
     // cover + title + artist
     var cs=40, cy=ry+(rh-cs)/2;
     var alb=TF.album.EvalWithMetadb(h);
-    gr.FillRoundRect(titleX,cy,cs,cs,3,3,coverCol(alb||String(j)));
+    drawCover(gr,titleX,cy,cs,3,h,alb||String(j));
     var ttx=titleX+cs+12, ttw=titleW-cs-12;
     tL(gr,TF.title.EvalWithMetadb(h),FONT.rowTitle,titleCol,ttx,ry+8,ttw,20);
     tL(gr,TF.artist.EvalWithMetadb(h),FONT.rowArtist,COL.text2,ttx,ry+30,ttw,16);
@@ -221,7 +242,7 @@ function drawQueue(gr){
 
   var np=fb.IsPlaying||fb.IsPaused, qy=r.y+70;
   tL(gr,'Now playing',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
-  gr.FillRoundRect(x,qy,48,48,4,4,coverCol(np?TF.npAlbumSeed():'np'));
+  drawCover(gr,x,qy,48,4,NP,'np');
   tL(gr,np?TF.npTitle.Eval():'Nothing playing',FONT.qName,np?COL.green:COL.text,x+60,qy+6,r.w-36-60,18);
   tL(gr,np?TF.npArtist.Eval():'',FONT.qArtist,COL.text2,x+60,qy+26,r.w-36-60,16);
   qy+=70;
@@ -235,7 +256,7 @@ function drawQueue(gr){
     for(var k=start;k<cnt&&shown<20;k++){
       if(qy+rh>bottom) break;
       var h=items[k]; if(!h) continue;
-      gr.FillRoundRect(x,qy,44,44,4,4,coverCol(TF.album.EvalWithMetadb(h)||String(k)));
+      drawCover(gr,x,qy,44,4,h,TF.album.EvalWithMetadb(h)||String(k));
       tL(gr,TF.title.EvalWithMetadb(h),FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
       tL(gr,TF.artist.EvalWithMetadb(h),FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
       qy+=rh; shown++;
@@ -256,7 +277,7 @@ function drawBar(gr){
   var np=fb.IsPlaying||fb.IsPaused, playing=np&&fb.IsPlaying&&!fb.IsPaused;
   // left: cover + title/artist
   var cs=56, cx=14, cy=by+(M.barH-cs)/2;
-  gr.FillRoundRect(cx,cy,cs,cs,4,4,coverCol(np?TF.npAlbumSeed():'np'));
+  drawCover(gr,cx,cy,cs,4,NP,'np');
   var tx=cx+cs+12;
   tL(gr,np?TF.npTitle.Eval():'',FONT.npTitle,COL.text,tx,by+22,220,18);
   tL(gr,np?TF.npArtist.Eval():'',FONT.npArtist,COL.text2,tx,by+42,220,16);
