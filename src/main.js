@@ -185,6 +185,7 @@ var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null;
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page)
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
 var plCacheMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
@@ -233,9 +234,10 @@ function drawNav(gr){
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
   tR(gr,'+',FONT.tab,COL.text2,R.navLib.x,R.navLib.y+14,R.navLib.w-16,26);
   var listTop=R.navLib.y+52, rh=58, bottom=R.navLib.y+R.navLib.h;
-  var active=plman.ActivePlaylist, n=plman.PlaylistCount;
+  var active=plman.ActivePlaylist, n=plman.PlaylistCount, dispIdx=0;
   for(var i=0;i<n;i++){
-    var ry=listTop+i*rh;
+    if(plman.GetPlaylistName(i)===ROUTE) continue;
+    var ry=listTop+dispIdx*rh; dispIdx++;
     if(ry+rh>bottom) break;
     var isA=(i===active);
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
@@ -343,8 +345,9 @@ function drawHome(gr,r){
   var cardH=cardW+56, i;
   var y=r.y+18;
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
-  var n=plman.PlaylistCount, plRows=Math.max(1,Math.ceil(n/cols));
-  for(i=0;i<n;i++) drawPlaylistCard(gr,x0+(i%cols)*(cardW+gap),y+Math.floor(i/cols)*(cardH+8),cardW,i);
+  var n=plman.PlaylistCount, d=0;
+  for(i=0;i<n;i++){ if(plman.GetPlaylistName(i)===ROUTE) continue; drawPlaylistCard(gr,x0+(d%cols)*(cardW+gap),y+Math.floor(d/cols)*(cardH+8),cardW,i); d++; }
+  var plRows=Math.max(1,Math.ceil(d/cols));
   y+=plRows*(cardH+8)+18;
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
   var arts=getArtistList();
@@ -383,6 +386,7 @@ function drawArtist(gr,r){
       tL(gr,String(t+1),FONT.rowNum,COL.text2,x0,ty,26,40);
       tL(gr,tr.title,FONT.rowTitle,COL.text,x0+36,ty,w-36-64,40);
       tR(gr,tr.dur,FONT.rowCell,COL.text2,r.x+r.w-pad-60,ty,60,40);
+      HB_TR.push({x0:x0-8,y0:ty,x1:r.x+r.w-pad+8,y1:ty+40,lib:true,block:b,idx:t});
       ty+=40;
     }
     y=ty+22;
@@ -437,7 +441,8 @@ function drawQueue(gr){
   var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
   var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
-  tL(gr,pli>=0?('Next from: '+plman.GetPlaylistName(pli)):'Next up',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
+  var qlabel=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?('Next from: '+plman.GetPlaylistName(pli)):'Next up';
+  tL(gr,qlabel,FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
   if(pli>=0){
     var items=getItems(pli), cnt=plman.PlaylistItemCount(pli), rh=56, bottom=r.y+r.h-8, shown=0;
     for(var k=start;k<cnt&&shown<20;k++){
@@ -505,6 +510,16 @@ function on_mouse_lbtn_down(x,y){
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); window.Repaint(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
 }
+function playArtistTrack(block,idx){
+  var al=artistAlbums[block]; if(!al) return;
+  var hl=fb.CreateHandleList();
+  for(var i=0;i<al.tracks.length;i++) hl.Add(al.tracks[i].handle);
+  var pi=plman.FindOrCreatePlaylist(ROUTE,true);
+  try{ plman.ClearPlaylist(pi); }catch(e){}
+  plman.InsertPlaylistItems(pi,0,hl,false);
+  plman.ActivePlaylist=pi; invalidateItems();
+  plman.ExecutePlaylistDefaultAction(pi,idx);
+}
 function doCtrl(act){
   if(act==='play') fb.PlayOrPause();
   else if(act==='next') fb.Next();
@@ -524,14 +539,14 @@ function on_mouse_lbtn_up(x,y){
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } window.Repaint(); return; } }
   for(i=0;i<HB_ARTIST.length;i++){ if(inRect(x,y,HB_ARTIST[i])){ loadArtist(HB_ARTIST[i].name); view='artist'; window.Repaint(); return; } }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; view='playlist'; window.Repaint(); return; } }
-  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ plman.ExecutePlaylistDefaultAction(HB_TR[i].pl,HB_TR[i].item); window.Repaint(); return; } }
+  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.lib) playArtistTrack(tr.block,tr.idx); else plman.ExecutePlaylistDefaultAction(tr.pl,tr.item); window.Repaint(); return; } }
 }
 function on_mouse_move(x,y){
   mx=x; my=y;
   if(drag==='seek'){ dragFrac=seekFrac(x); window.Repaint(); return; }
   if(drag==='vol'){ applyVol(x); return; }
   var h=-1;
-  for(var i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ h=HB_TR[i].item; break; } }
+  for(var i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i]) && !HB_TR[i].lib){ h=HB_TR[i].item; break; } }
   if(h!==hoverTrack){ hoverTrack=h; window.Repaint(); }
 }
 function on_mouse_leave(){ if(hoverTrack!==-1){ hoverTrack=-1; window.Repaint(); } }
