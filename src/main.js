@@ -191,7 +191,7 @@ function drawMain(gr){
   // scrollbar hint
   if(p.count>visible && visible>0){
     var trackH=bottom-rowsTop, thumbH=Math.max(30,trackH*visible/p.count), thumbY=rowsTop+trackH*firstRow/p.count;
-    gr.FillRoundRect(rx+6,thumbY,4,thumbH,2,2,COL.rowActive);
+    gr.FillSolidRect(rx+6,thumbY,4,thumbH,COL.rowActive);
   }
 }
 
@@ -230,8 +230,8 @@ function drawBar(gr){
   tC(gr, playing?GLYPH.pause:GLYPH.play, FONT.iconBtn, COL.black, pbx, pby, pb, pb);
   var sbW=Math.min(Math.round(W*0.38),560), sbX=cxC-sbW/2, sbY=by+56;
   var pos=fb.PlaybackLength>0?fb.PlaybackTime/fb.PlaybackLength:0;
-  gr.FillRoundRect(sbX,sbY,sbW,4,2,2,COL.seekbg);
-  if(pos>0) gr.FillRoundRect(sbX,sbY,Math.round(sbW*pos),4,2,2,COL.text);
+  gr.FillSolidRect(sbX,sbY,sbW,4,COL.seekbg);
+  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
   tR(gr,fmtTime(fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
   tL(gr,fmtTime(fb.PlaybackLength),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
   // right: dev "Preferences" affordance (temporary)
