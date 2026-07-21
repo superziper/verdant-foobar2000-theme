@@ -45,7 +45,8 @@ FONT.icon = gdi.Font('Segoe MDL2 Assets', 12, 0);
 FONT.iconBtn = gdi.Font('Segoe MDL2 Assets', 14, 0);
 FONT.card = gdi.Font('Segoe UI', 14, 1);
 FONT.sect2 = gdi.Font('Segoe UI', 22, 1);
-FONT.lyric = gdi.Font('Segoe UI', 17, 1);
+FONT.lyric = gdi.Font('Segoe UI', 18, 1);
+FONT.lyricCur = gdi.Font('Segoe UI', 23, 1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 
@@ -123,6 +124,16 @@ function loadArtist(name){
 
 /* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
 var lyricsFor=null, lyrics=null; // lyrics: {lines:[{t,text}],synced} | 'none'
+var lyPos=0, lyCur=0, lyTimer=null;
+function currentLyricLine(){
+  if(!lyrics || lyrics==='none' || !lyrics.synced) return 0;
+  var pt=fb.PlaybackTime, c=0;
+  for(var i=0;i<lyrics.lines.length;i++){ if(lyrics.lines[i].t<=pt) c=i; else break; }
+  return c;
+}
+function lyTick(){ var d=lyCur-lyPos; if(Math.abs(d)<0.01){ lyPos=lyCur; stopLyAnim(); } else lyPos+=d*0.25; window.Repaint(); }
+function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
+function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 function readFirst(paths){
   for(var i=0;i<paths.length;i++){
     try{ if(utils.IsFile && !utils.IsFile(paths[i])) continue; var t=utils.ReadUTF8(paths[i]); if(t && t.length) return t; }catch(e){}
@@ -144,7 +155,7 @@ function parseLyrics(text){
 function loadLyrics(){
   var key=NP?NP.Path:null;
   if(key===lyricsFor) return;
-  lyricsFor=key; lyrics='none';
+  lyricsFor=key; lyrics='none'; lyPos=0;
   if(!key) return;
   var base=key.replace(/\.[^.\\\/]+$/,'');
   var text=readFirst([base+'.lrc', base+'.txt']);
@@ -395,15 +406,23 @@ function drawQueue(gr){
       tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
       return;
     }
-    var lyTop=r.y+72, lyBottom=r.y+r.h-14, lh=30, li, cur=-1;
-    if(lyrics.synced){ var pt=fb.PlaybackTime; for(li=0;li<lyrics.lines.length;li++){ if(lyrics.lines[li].t<=pt) cur=li; else break; } }
-    var vis=Math.floor((lyBottom-lyTop)/lh);
-    var startLine=(cur>=0)?Math.max(0,cur-Math.floor(vis/2)):0;
-    var yy=lyTop;
-    for(li=startLine; li<lyrics.lines.length && yy+lh<=lyBottom; li++){
-      var dim=lyrics.synced?RGBA(255,255,255,80):COL.text2;
-      tL(gr,lyrics.lines[li].text,FONT.lyric,(li===cur)?COL.text:dim,x,yy,r.w-36,lh);
-      yy+=lh;
+    var viewTop=r.y+64, viewBot=r.y+r.h-16, viewMid=Math.round((viewTop+viewBot)/2), lh=36, li;
+    if(lyrics.synced){
+      lyCur=currentLyricLine();
+      if(Math.abs(lyCur-lyPos)>0.01) startLyAnim();
+      for(li=0;li<lyrics.lines.length;li++){
+        var yc=viewMid+(li-lyPos)*lh;
+        if(yc<viewTop-lh || yc>viewBot+lh) continue;
+        var isCur=(li===lyCur);
+        var dist=Math.abs(yc-viewMid), a=clamp01(1-dist/(viewMid-viewTop));
+        var col=isCur?COL.text:RGBA(255,255,255,Math.round(45+150*a));
+        var fnt=isCur?FONT.lyricCur:FONT.lyric, bh=isCur?46:lh;
+        tC(gr,lyrics.lines[li].text,fnt,col,r.x+14,Math.round(yc-bh/2),r.w-28,bh);
+      }
+    } else {
+      stopLyAnim();
+      var yy=viewTop+6;
+      for(li=0;li<lyrics.lines.length && yy+lh<=viewBot; li++){ tC(gr,lyrics.lines[li].text,FONT.lyric,COL.text2,r.x+14,yy,r.w-28,lh); yy+=lh; }
     }
     return;
   }
@@ -498,7 +517,7 @@ function on_mouse_lbtn_up(x,y){
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
   if(drag==='vol'){ drag=null; return; }
   var i;
-  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; window.Repaint(); return; } }
+  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); window.Repaint(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
   if(HB_PREFS && inRect(x,y,HB_PREFS)){ fb.ShowPreferences(); return; }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; window.Repaint(); return; }
@@ -523,6 +542,7 @@ function on_mouse_wheel(step){
   else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
   window.Repaint();
 }
+function on_script_unload(){ stopLyAnim(); }
 function on_library_items_added(){ artistList=null; window.Repaint(); }
 function on_library_items_removed(){ artistList=null; window.Repaint(); }
 function on_library_items_changed(){ artistList=null; window.Repaint(); }
