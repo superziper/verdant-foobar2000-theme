@@ -177,6 +177,38 @@ function artHue(h,seed){
   if(img){ try{ var s=img.GetColourScheme(1); if(s && s.length) col=s[0]; }catch(e){} }
   hueCache[k]=col; return col;
 }
+/* masked art: circular (artists) / rounded (large covers). Masks + masked copies are cached;
+   ApplyMask mutates, so it's applied to a resized COPY, never the shared original. */
+var maskCache={}, cArtCache={};
+function circleMask(size){
+  var k='c'+size; if(maskCache[k]) return maskCache[k];
+  var m=gdi.CreateImage(size,size), g=m.GetGraphics();
+  g.FillSolidRect(0,0,size,size,RGB(0,0,0)); g.SetSmoothingMode(2); g.FillEllipse(0,0,size,size,RGB(255,255,255));
+  m.ReleaseGraphics(g); maskCache[k]=m; return m;
+}
+function roundMask(size,rad){
+  var k='r'+size+'_'+rad; if(maskCache[k]) return maskCache[k];
+  var m=gdi.CreateImage(size,size), g=m.GetGraphics();
+  g.FillSolidRect(0,0,size,size,RGB(0,0,0)); g.SetSmoothingMode(2); g.FillRoundRect(0,0,size,size,rad,rad,RGB(255,255,255));
+  m.ReleaseGraphics(g); maskCache[k]=m; return m;
+}
+function maskedArt(h,seed,size,mask,tag){
+  var k=(seed||'')+'|'+size+'|'+tag;
+  if(cArtCache.hasOwnProperty(k)) return cArtCache[k];
+  var res=null, art=getArt(h);
+  if(art){ try{ var img=art.Resize(size,size); img.ApplyMask(mask); res=img; }catch(e){ res=null; } }
+  cArtCache[k]=res; return res;
+}
+function drawCircle(gr,x,y,size,h,seed){
+  var ci=maskedArt(h,seed,size,circleMask(size),'c');
+  if(ci) gr.DrawImage(ci,x,y,size,size,0,0,ci.Width,ci.Height,0,255);
+  else gr.FillEllipse(x,y,size,size,coverCol(seed));
+}
+function drawRounded(gr,x,y,size,rad,h,seed){
+  var ri=maskedArt(h,seed,size,roundMask(size,rad),'r'+rad);
+  if(ri) gr.DrawImage(ri,x,y,size,size,0,0,ri.Width,ri.Height,0,255);
+  else gr.FillRoundRect(x,y,size,size,rad,rad,coverCol(seed));
+}
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={}, NP=null;
@@ -262,7 +294,7 @@ function drawPlaylist(gr,r){
   // header gradient wash (square top corners; polish later)
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
-  drawCover(gr,ax,ay,art,6,firstHandle(p.i),p.name);
+  drawRounded(gr,ax,ay,art,8,firstHandle(p.i),p.name);
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
@@ -324,7 +356,7 @@ function drawPlaylist(gr,r){
 function drawPlaylistCard(gr,x,y,w,i){
   gr.FillRoundRect(x,y,w,w+56,8,8,COL.elev);
   var cs=w-24;
-  drawCover(gr,x+12,y+12,cs,6,firstHandle(i),plman.GetPlaylistName(i));
+  drawRounded(gr,x+12,y+12,cs,6,firstHandle(i),plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tL(gr,'Playlist · '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
@@ -332,7 +364,7 @@ function drawPlaylistCard(gr,x,y,w,i){
 function drawArtistCard(gr,x,y,w,a){
   gr.FillRoundRect(x,y,w,w+56,8,8,COL.elev);
   var cs=w-24;
-  drawCover(gr,x+12,y+12,cs,6,a.handle,a.name);
+  drawCircle(gr,x+12,y+12,cs,a.handle,a.name);
   tC(gr,a.name,FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tC(gr,'Artist',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'artist',id:a.name});
@@ -365,7 +397,7 @@ function drawArtist(gr,r){
   var cover=artistAlbums.length?artistAlbums[0].handle:null;
   gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
   var art=150, ay=r.y+34;
-  drawCover(gr,x0,ay,art,6,cover,viewArtist);
+  drawCircle(gr,x0,ay,art,cover,viewArtist);
   var tx=x0+art+24, tw=w-art-24, songs=0;
   for(i=0;i<artistAlbums.length;i++) songs+=artistAlbums[i].tracks.length;
   tL(gr,'ARTIST',FONT.eyebrow,COL.text,tx,ay+10,tw,18);
@@ -376,7 +408,7 @@ function drawArtist(gr,r){
   for(var b=artScroll;b<artistAlbums.length;b++){
     if(y+96>bottom) break;
     var al=artistAlbums[b];
-    drawCover(gr,x0,y,72,6,al.handle,al.album);
+    drawRounded(gr,x0,y,72,6,al.handle,al.album);
     tL(gr,al.album,FONT.sect2,COL.text,x0+88,y+6,w-88,26);
     tL(gr,(al.year||'')+' · '+al.tracks.length+' songs',FONT.meta,COL.text2,x0+88,y+38,w-88,20);
     var ty=y+84;
