@@ -415,7 +415,7 @@ function drawQueue(gr){
         if(yc<viewTop-lh || yc>viewBot+lh) continue;
         var isCur=(li===lyCur);
         var dist=Math.abs(yc-viewMid), a=clamp01(1-dist/(viewMid-viewTop));
-        var col=isCur?COL.text:RGBA(255,255,255,Math.round(45+150*a));
+        var col=isCur?COL.green:RGBA(255,255,255,Math.round(28+112*a));
         var fnt=isCur?FONT.lyricCur:FONT.lyric, bh=isCur?46:lh;
         tC(gr,lyrics.lines[li].text,fnt,col,r.x+14,Math.round(yc-bh/2),r.w-28,bh);
       }
