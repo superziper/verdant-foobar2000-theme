@@ -44,6 +44,7 @@ var FONT = {
 FONT.icon = gdi.Font('Segoe MDL2 Assets', 12, 0);
 FONT.iconBtn = gdi.Font('Segoe MDL2 Assets', 14, 0);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
+GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 
 /* ------------------------- title formats ------------------------- */
 var TF = {
@@ -66,14 +67,20 @@ function coverCol(seed){ return PALETTE[hash(seed)%PALETTE.length]; }
 function blend(c1,c2,t){ var r=(c1>>16)&255,g=(c1>>8)&255,b=c1&255,r2=(c2>>16)&255,g2=(c2>>8)&255,b2=c2&255; return RGB(Math.round(r+(r2-r)*t),Math.round(g+(g2-g)*t),Math.round(b+(b2-b)*t)); }
 function fmtTime(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
 function inRect(x,y,r){ return x>=r.x0 && x<r.x1 && y>=r.y0 && y<r.y1; }
+function clamp01(v){ return v<0?0:(v>1?1:v); }
+function vol2pos(v){ return Math.pow(2, v/10); }                                   // dB(-100..0) -> 0..1
+function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
+function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
+function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={};
 var firstRow=0, hoverTrack=-1, mx=-1, my=-1;
-var HB_PL=[], HB_TR=[], HB_PREFS=null;
-var plCache=null, plCacheFor=-1;
-function getItems(pi){ if(pi!==plCacheFor||!plCache){ plCache=plman.GetPlaylistItems(pi); plCacheFor=pi; } return plCache; }
-function invalidateItems(){ plCacheFor=-1; }
+var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
+var rightTab='queue';
+var plCacheMap={};
+function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
+function invalidateItems(){ plCacheMap={}; }
 
 function layout(){
   var pad=M.pad, gap=M.gap;
@@ -196,54 +203,109 @@ function drawMain(gr){
 }
 
 function drawQueue(gr){
+  HB_TABS=[];
   var r=R.queue; panelBg(gr,r,COL.base);
   var x=r.x+18;
-  tL(gr,'Queue',FONT.tab,COL.text,x,r.y+16,90,26);
-  tL(gr,'Lyrics',FONT.tab,COL.text2,x+82,r.y+16,90,26);
-  gr.FillSolidRect(x,r.y+46,54,3,COL.green);
-  var qy=r.y+70;
+  var qOn=rightTab==='queue';
+  tL(gr,'Queue',FONT.tab,qOn?COL.text:COL.text2,x,r.y+16,80,26);
+  tL(gr,'Lyrics',FONT.tab,qOn?COL.text2:COL.text,x+82,r.y+16,80,26);
+  gr.FillSolidRect(qOn?x:x+82,r.y+46,qOn?54:50,3,COL.green);
+  HB_TABS.push({x0:x-6,y0:r.y+8,x1:x+72,y1:r.y+48,tab:'queue'});
+  HB_TABS.push({x0:x+76,y0:r.y+8,x1:x+152,y1:r.y+48,tab:'lyrics'});
+
+  if(!qOn){
+    tL(gr,'Lyrics',FONT.sect,COL.text,x,r.y+74,r.w-36,24);
+    tL(gr,'ESLyric / .lrc beside the track — wiring next.',FONT.qArtist,COL.text3,x,r.y+104,r.w-36,18);
+    return;
+  }
+
+  var np=fb.IsPlaying||fb.IsPaused, qy=r.y+70;
   tL(gr,'Now playing',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
-  var np=fb.IsPlaying||fb.IsPaused;
   gr.FillRoundRect(x,qy,48,48,4,4,coverCol(np?TF.npAlbumSeed():'np'));
   tL(gr,np?TF.npTitle.Eval():'Nothing playing',FONT.qName,np?COL.green:COL.text,x+60,qy+6,r.w-36-60,18);
   tL(gr,np?TF.npArtist.Eval():'',FONT.qArtist,COL.text2,x+60,qy+26,r.w-36-60,16);
-  qy+=68;
-  tL(gr,'Next up',FONT.sect,COL.text,x,qy,r.w-36,24);
-  tL(gr,'(queue wiring — next milestone)',FONT.qArtist,COL.text3,x,qy+30,r.w-36,18);
+  qy+=70;
+
+  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+  var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
+  var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
+  tL(gr,pli>=0?('Next from: '+plman.GetPlaylistName(pli)):'Next up',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
+  if(pli>=0){
+    var items=getItems(pli), cnt=plman.PlaylistItemCount(pli), rh=56, bottom=r.y+r.h-8, shown=0;
+    for(var k=start;k<cnt&&shown<20;k++){
+      if(qy+rh>bottom) break;
+      var h=items[k]; if(!h) continue;
+      gr.FillRoundRect(x,qy,44,44,4,4,coverCol(TF.album.EvalWithMetadb(h)||String(k)));
+      tL(gr,TF.title.EvalWithMetadb(h),FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
+      tL(gr,TF.artist.EvalWithMetadb(h),FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+      qy+=rh; shown++;
+    }
+    if(shown===0) tL(gr,'End of playlist',FONT.qArtist,COL.text3,x,qy,r.w-36,18);
+  }
 }
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
 
+function ctrlBtn(gr,glyph,cx,cyc,active,act){
+  tC(gr,glyph,FONT.iconBtn,active?COL.green:COL.text2,cx-14,cyc-14,28,28);
+  HB_CTRL.push({x0:cx-16,y0:cyc-16,x1:cx+16,y1:cyc+16,act:act});
+}
 function drawBar(gr){
+  HB_CTRL=[];
   var by=R.barY;
   gr.FillSolidRect(0,by,W,M.barH,COL.black);
-  var np=fb.IsPlaying||fb.IsPaused;
+  var np=fb.IsPlaying||fb.IsPaused, playing=np&&fb.IsPlaying&&!fb.IsPaused;
   // left: cover + title/artist
   var cs=56, cx=14, cy=by+(M.barH-cs)/2;
   gr.FillRoundRect(cx,cy,cs,cs,4,4,coverCol(np?TF.npAlbumSeed():'np'));
   var tx=cx+cs+12;
   tL(gr,np?TF.npTitle.Eval():'',FONT.npTitle,COL.text,tx,by+22,220,18);
   tL(gr,np?TF.npArtist.Eval():'',FONT.npArtist,COL.text2,tx,by+42,220,16);
-  // center: play/pause + seekbar
-  var cxC=Math.round(W/2), playing=np&&fb.IsPlaying&&!fb.IsPaused;
-  var pb=36, pbx=cxC-pb/2, pby=by+8;
+  // center: transport row + seekbar
+  var cxC=Math.round(W/2);
+  var pb=34, pbx=cxC-pb/2, pby=by+8, pcy=pby+pb/2;
+  var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
+  ctrlBtn(gr,GLYPH.shuffle,cxC-92,pcy,shufOn,'shuffle');
+  ctrlBtn(gr,GLYPH.prev,cxC-50,pcy,false,'prev');
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
-  tC(gr, playing?GLYPH.pause:GLYPH.play, FONT.iconBtn, COL.black, pbx, pby, pb, pb);
-  var sbW=Math.min(Math.round(W*0.38),560), sbX=cxC-sbW/2, sbY=by+56;
-  var pos=fb.PlaybackLength>0?fb.PlaybackTime/fb.PlaybackLength:0;
+  tC(gr,playing?GLYPH.pause:GLYPH.play,FONT.iconBtn,COL.black,pbx,pby,pb,pb);
+  HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
+  ctrlBtn(gr,GLYPH.next,cxC+50,pcy,false,'next');
+  ctrlBtn(gr,repMode===2?GLYPH.repeat1:GLYPH.repeat,cxC+92,pcy,repMode>0,'repeat');
+  var sbW=Math.min(Math.round(W*0.34),520), sbX=cxC-sbW/2, sbY=by+54;
+  var len=fb.PlaybackLength, pos=len>0?fb.PlaybackTime/len:0;
   gr.FillSolidRect(sbX,sbY,sbW,4,COL.seekbg);
   if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
   tR(gr,fmtTime(fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
-  tL(gr,fmtTime(fb.PlaybackLength),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
-  // right: dev "Preferences" affordance (temporary)
-  var pw=90, px=W-pw-14;
-  tR(gr,'⚙ Preferences',FONT.prefs,COL.text3,px,by,pw,M.barH);
-  HB_PREFS={x0:px,y0:by,x1:W,y1:H};
+  tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
+  HB_SEEK={x0:sbX,y0:sbY-9,x1:sbX+sbW,y1:sbY+13,x:sbX,w:sbW};
+  // right: volume + gear(prefs)
+  var gearX=W-30, gearC=by+M.barH/2;
+  tC(gr,GLYPH.settings,FONT.icon,COL.text3,gearX-12,gearC-12,24,24);
+  HB_PREFS={x0:gearX-16,y0:gearC-16,x1:gearX+16,y1:gearC+16};
+  var volW=92, volX=gearX-30-volW, volY=gearC-2;
+  tC(gr,GLYPH.volume,FONT.icon,COL.text2,volX-26,gearC-12,20,24);
+  var vp=clamp01(vol2pos(fb.Volume));
+  gr.FillSolidRect(volX,volY,volW,4,COL.seekbg);
+  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
+  HB_VOL={x0:volX,y0:volY-9,x1:volX+volW,y1:volY+13,x:volX,w:volW};
 }
 
 /* ------------------------- input ------------------------- */
+function doCtrl(act){
+  if(act==='play') fb.PlayOrPause();
+  else if(act==='next') fb.Next();
+  else if(act==='prev') fb.Prev();
+  else if(act==='shuffle'){ var o=readOrder(); setOrder(o>=3?0:4); }
+  else if(act==='repeat'){ var o=readOrder(); setOrder(o===0?1:(o===1?2:0)); }
+  window.Repaint();
+}
 function on_mouse_lbtn_up(x,y){
-  if(HB_PREFS && inRect(x,y,HB_PREFS)){ fb.ShowPreferences(); return; }
   var i;
+  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; window.Repaint(); return; } }
+  for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
+  if(HB_SEEK && inRect(x,y,HB_SEEK)){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*clamp01((x-HB_SEEK.x)/HB_SEEK.w); window.Repaint(); return; }
+  if(HB_VOL && inRect(x,y,HB_VOL)){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); window.Repaint(); return; }
+  if(HB_PREFS && inRect(x,y,HB_PREFS)){ fb.ShowPreferences(); return; }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; window.Repaint(); return; } }
   for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ plman.ExecutePlaylistDefaultAction(HB_TR[i].pl,HB_TR[i].item); window.Repaint(); return; } }
 }
@@ -264,6 +326,9 @@ function on_playback_new_track(){ window.Repaint(); }
 function on_playback_stop(){ window.Repaint(); }
 function on_playback_pause(){ window.Repaint(); }
 function on_playback_time(){ window.Repaint(); }
+function on_playback_seek(){ window.Repaint(); }
+function on_playback_order_changed(){ window.Repaint(); }
+function on_volume_change(){ window.Repaint(); }
 function on_playlist_switch(){ firstRow=0; invalidateItems(); window.Repaint(); }
 function on_playlists_changed(){ invalidateItems(); window.Repaint(); }
 function on_playlist_items_added(){ invalidateItems(); window.Repaint(); }
