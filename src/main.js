@@ -41,6 +41,9 @@ var FONT = {
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
   npTitle:F(13,0), npArtist:F(11,0), time:F(11,0), prefs:F(11,0), glyph:F(15,0)
 };
+FONT.icon = gdi.Font('Segoe MDL2 Assets', 12, 0);
+FONT.iconBtn = gdi.Font('Segoe MDL2 Assets', 14, 0);
+var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 
 /* ------------------------- title formats ------------------------- */
 var TF = {
@@ -52,8 +55,10 @@ var TF = {
 /* ------------------------- DrawText flags ------------------------- */
 var DT_L = 0x4|0x20|0x800|0x8000;        // left + vcenter + singleline + noprefix + end-ellipsis
 var DT_R = 0x2|0x4|0x20|0x800;           // right + vcenter + singleline + noprefix
+var DT_C = 0x1|0x4|0x20|0x800;           // center + vcenter + singleline + noprefix
 function tL(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_L); }
 function tR(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_R); }
+function tC(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C); }
 
 /* ------------------------- helpers ------------------------- */
 function hash(s){ s=String(s); var h=2166136261; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h*16777619)>>>0; } return h>>>0; }
@@ -169,7 +174,7 @@ function drawMain(gr){
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
     // index / play glyph on hover
-    if(isHover) tL(gr,'▶',FONT.rowNum,COL.text,lx,ry,numW,rh);
+    if(isHover) tC(gr,GLYPH.play,FONT.icon,COL.text,lx,ry,numW,rh);
     else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
     // cover + title + artist
     var cs=40, cy=ry+(rh-cs)/2;
@@ -222,8 +227,7 @@ function drawBar(gr){
   var cxC=Math.round(W/2), playing=np&&fb.IsPlaying&&!fb.IsPaused;
   var pb=36, pbx=cxC-pb/2, pby=by+8;
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
-  if(playing){ gr.FillSolidRect(pbx+13,pby+11,4,14,COL.black); gr.FillSolidRect(pbx+20,pby+11,4,14,COL.black); }
-  else { tL(gr,'▶',FONT.glyph,COL.black,pbx+13,pby,pb,pb); }
+  tC(gr, playing?GLYPH.pause:GLYPH.play, FONT.iconBtn, COL.black, pbx, pby, pb, pb);
   var sbW=Math.min(Math.round(W*0.38),560), sbX=cxC-sbW/2, sbY=by+56;
   var pos=fb.PlaybackLength>0?fb.PlaybackTime/fb.PlaybackLength:0;
   gr.FillRoundRect(sbX,sbY,sbW,4,2,2,COL.seekbg);
