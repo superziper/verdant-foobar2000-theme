@@ -212,7 +212,8 @@ function drawRounded(gr,x,y,size,rad,h,seed){
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={}, NP=null;
-var firstRow=0, hoverTrack=-1, mx=-1, my=-1, drag=null, dragFrac=0;
+var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
+function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null;
 var rightTab='queue';
@@ -258,7 +259,7 @@ function drawNav(gr){
   // top card
   panelBg(gr,R.navTop,COL.base);
   var x=R.navTop.x+18, w=R.navTop.w-30;
-  tL(gr,'Home',FONT.nav,view==='home'?COL.text:COL.text2,x,R.navTop.y+12,w,32);
+  tL(gr,'Home',FONT.nav,(view==='home'||hv(R.navTop.x+8,R.navTop.y+8,R.navTop.x+R.navTop.w-8,R.navTop.y+44))?COL.text:COL.text2,x,R.navTop.y+12,w,32);
   tL(gr,'Search',FONT.nav,COL.text2,x,R.navTop.y+12+38,w,32);
   HB_HOME={x0:R.navTop.x+8,y0:R.navTop.y+8,x1:R.navTop.x+R.navTop.w-8,y1:R.navTop.y+44};
   // library card
@@ -273,6 +274,7 @@ function drawNav(gr){
     if(ry+rh>bottom) break;
     var isA=(i===active);
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
+    else if(hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh)) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
     var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
     drawCover(gr,cx,cy,cs,4,firstHandle(i),plman.GetPlaylistName(i));
     var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
@@ -326,7 +328,7 @@ function drawPlaylist(gr,r){
     var h=items[j]; if(!h){ continue; }
     var ry=rowsTop+v*rh;
     var isPlaying=playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j;
-    var isHover=(j===hoverTrack);
+    var isHover=hv(r.x,ry,r.x+r.w,ry+rh);
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
     // index / play glyph on hover
@@ -354,7 +356,7 @@ function drawPlaylist(gr,r){
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
-  gr.FillRoundRect(x,y,w,w+56,8,8,COL.elev);
+  gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawRounded(gr,x+12,y+12,cs,6,firstHandle(i),plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
@@ -362,7 +364,7 @@ function drawPlaylistCard(gr,x,y,w,i){
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a){
-  gr.FillRoundRect(x,y,w,w+56,8,8,COL.elev);
+  gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawCircle(gr,x+12,y+12,cs,a.handle,a.name);
   tC(gr,a.name,FONT.card,COL.text,x+12,y+cs+18,w-24,20);
@@ -415,6 +417,7 @@ function drawArtist(gr,r){
     for(var t=0;t<al.tracks.length;t++){
       if(ty+40>bottom) break;
       var tr=al.tracks[t];
+      if(hv(x0-8,ty,r.x+r.w-pad+8,ty+40)) gr.FillRoundRect(x0-8,ty,(r.x+r.w-pad+8)-(x0-8),40,4,4,COL.rowHover);
       tL(gr,String(t+1),FONT.rowNum,COL.text2,x0,ty,26,40);
       tL(gr,tr.title,FONT.rowTitle,COL.text,x0+36,ty,w-36-64,40);
       tR(gr,tr.dur,FONT.rowCell,COL.text2,r.x+r.w-pad-60,ty,60,40);
@@ -491,7 +494,7 @@ function drawQueue(gr){
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
 
 function ctrlBtn(gr,glyph,cx,cyc,active,act){
-  tC(gr,glyph,FONT.iconBtn,active?COL.green:COL.text2,cx-14,cyc-14,28,28);
+  tC(gr,glyph,FONT.iconBtn,active?COL.green:(hv(cx-16,cyc-16,cx+16,cyc+16)?COL.text:COL.text2),cx-14,cyc-14,28,28);
   HB_CTRL.push({x0:cx-16,y0:cyc-16,x1:cx+16,y1:cyc+16,act:act});
 }
 function drawBar(gr){
@@ -507,7 +510,7 @@ function drawBar(gr){
   tL(gr,np?TF.npArtist.Eval():'',FONT.npArtist,COL.text2,tx,by+42,220,16);
   // center: transport row + seekbar
   var cxC=Math.round(W/2);
-  var pb=34, pbx=cxC-pb/2, pby=by+8, pcy=pby+pb/2;
+  var pcy=by+25, phv=hv(cxC-20,by+6,cxC+20,by+44), pb=phv?38:34, pbx=cxC-pb/2, pby=pcy-pb/2;
   var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
   ctrlBtn(gr,GLYPH.shuffle,cxC-92,pcy,shufOn,'shuffle');
   ctrlBtn(gr,GLYPH.prev,cxC-50,pcy,false,'prev');
@@ -573,15 +576,24 @@ function on_mouse_lbtn_up(x,y){
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; view='playlist'; window.Repaint(); return; } }
   for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.lib) playArtistTrack(tr.block,tr.idx); else plman.ExecutePlaylistDefaultAction(tr.pl,tr.item); window.Repaint(); return; } }
 }
+function hoverSig(x,y){
+  var i;
+  for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
+  for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
+  if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
+  for(i=0;i<HB_CARD.length;i++) if(inRect(x,y,HB_CARD[i])) return 'k'+i;
+  for(i=0;i<HB_PL.length;i++) if(inRect(x,y,HB_PL[i])) return 'p'+HB_PL[i].i;
+  for(i=0;i<HB_TR.length;i++) if(inRect(x,y,HB_TR[i])) return 'r'+i;
+  return '';
+}
 function on_mouse_move(x,y){
   mx=x; my=y;
   if(drag==='seek'){ dragFrac=seekFrac(x); window.Repaint(); return; }
   if(drag==='vol'){ applyVol(x); return; }
-  var h=-1;
-  for(var i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i]) && !HB_TR[i].lib){ h=HB_TR[i].item; break; } }
-  if(h!==hoverTrack){ hoverTrack=h; window.Repaint(); }
+  var sig=hoverSig(x,y);
+  if(sig!==hoverKey){ hoverKey=sig; window.Repaint(); }
 }
-function on_mouse_leave(){ if(hoverTrack!==-1){ hoverTrack=-1; window.Repaint(); } }
+function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''){ hoverKey=''; window.Repaint(); } }
 function on_mouse_wheel(step){
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){ homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }
