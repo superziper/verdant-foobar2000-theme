@@ -66,6 +66,9 @@ function inRect(x,y,r){ return x>=r.x0 && x<r.x1 && y>=r.y0 && y<r.y1; }
 var W=window.Width, H=window.Height, R={};
 var firstRow=0, hoverTrack=-1, mx=-1, my=-1;
 var HB_PL=[], HB_TR=[], HB_PREFS=null;
+var plCache=null, plCacheFor=-1;
+function getItems(pi){ if(pi!==plCacheFor||!plCache){ plCache=plman.GetPlaylistItems(pi); plCacheFor=pi; } return plCache; }
+function invalidateItems(){ plCacheFor=-1; }
 
 function layout(){
   var pad=M.pad, gap=M.gap;
@@ -156,8 +159,10 @@ function drawMain(gr){
   if(firstRow>maxFirst) firstRow=maxFirst;
   if(firstRow<0) firstRow=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
+  var items=getItems(p.i);
   for(var v=0; v<visible; v++){
     var j=firstRow+v; if(j>=p.count) break;
+    var h=items[j]; if(!h){ continue; }
     var ry=rowsTop+v*rh;
     var isPlaying=playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j;
     var isHover=(j===hoverTrack);
@@ -168,13 +173,14 @@ function drawMain(gr){
     else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
     // cover + title + artist
     var cs=40, cy=ry+(rh-cs)/2;
-    gr.FillRoundRect(titleX,cy,cs,cs,3,3,coverCol(TF.album.EvalPlaylistItem(p.i,j)||String(j)));
+    var alb=TF.album.EvalWithMetadb(h);
+    gr.FillRoundRect(titleX,cy,cs,cs,3,3,coverCol(alb||String(j)));
     var ttx=titleX+cs+12, ttw=titleW-cs-12;
-    tL(gr,TF.title.EvalPlaylistItem(p.i,j),FONT.rowTitle,titleCol,ttx,ry+8,ttw,20);
-    tL(gr,TF.artist.EvalPlaylistItem(p.i,j),FONT.rowArtist,COL.text2,ttx,ry+30,ttw,16);
+    tL(gr,TF.title.EvalWithMetadb(h),FONT.rowTitle,titleCol,ttx,ry+8,ttw,20);
+    tL(gr,TF.artist.EvalWithMetadb(h),FONT.rowArtist,COL.text2,ttx,ry+30,ttw,16);
     // album + duration
-    tL(gr,TF.album.EvalPlaylistItem(p.i,j),FONT.rowCell,COL.text2,albumX,ry,albumW,rh);
-    tR(gr,TF.len.EvalPlaylistItem(p.i,j),FONT.rowCell,COL.text2,rx-durW,ry,durW,rh);
+    tL(gr,alb,FONT.rowCell,COL.text2,albumX,ry,albumW,rh);
+    tR(gr,TF.len.EvalWithMetadb(h),FONT.rowCell,COL.text2,rx-durW,ry,durW,rh);
     HB_TR.push({x0:lx-8,y0:ry,x1:rx+8,y1:ry+rh,pl:p.i,item:j});
   }
   // scrollbar hint
@@ -254,8 +260,11 @@ function on_playback_new_track(){ window.Repaint(); }
 function on_playback_stop(){ window.Repaint(); }
 function on_playback_pause(){ window.Repaint(); }
 function on_playback_time(){ window.Repaint(); }
-function on_playlist_switch(){ firstRow=0; window.Repaint(); }
-function on_playlists_changed(){ window.Repaint(); }
+function on_playlist_switch(){ firstRow=0; invalidateItems(); window.Repaint(); }
+function on_playlists_changed(){ invalidateItems(); window.Repaint(); }
+function on_playlist_items_added(){ invalidateItems(); window.Repaint(); }
+function on_playlist_items_removed(){ invalidateItems(); window.Repaint(); }
+function on_playlist_items_reordered(){ invalidateItems(); window.Repaint(); }
 function on_item_focus_change(){ window.Repaint(); }
 
 console.log('[foobar-spotify] Phase 3-A shell loaded');
