@@ -45,6 +45,7 @@ FONT.icon = gdi.Font('Segoe MDL2 Assets', 12, 0);
 FONT.iconBtn = gdi.Font('Segoe MDL2 Assets', 14, 0);
 FONT.card = gdi.Font('Segoe UI', 14, 1);
 FONT.sect2 = gdi.Font('Segoe UI', 22, 1);
+FONT.lyric = gdi.Font('Segoe UI', 17, 1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 
@@ -118,6 +119,36 @@ function loadArtist(name){
     map[al].tracks.push({title:titles[i], dur:lens[i], handle:lib[i]});
   }
   for(var j=0;j<order.length;j++) artistAlbums.push(map[order[j]]);
+}
+
+/* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
+var lyricsFor=null, lyrics=null; // lyrics: {lines:[{t,text}],synced} | 'none'
+function readFirst(paths){
+  for(var i=0;i<paths.length;i++){
+    try{ if(utils.IsFile && !utils.IsFile(paths[i])) continue; var t=utils.ReadUTF8(paths[i]); if(t && t.length) return t; }catch(e){}
+  }
+  return null;
+}
+function parseLyrics(text){
+  var raw=text.split(/\r?\n/), lines=[], synced=false, reAll=/\[(\d+):(\d+(?:\.\d+)?)\]/g, i, j, m;
+  for(i=0;i<raw.length;i++){
+    var line=raw[i], times=[]; reAll.lastIndex=0;
+    while((m=reAll.exec(line))!==null){ times.push(parseInt(m[1],10)*60+parseFloat(m[2])); }
+    var txt=line.replace(reAll,'').trim();
+    if(times.length){ synced=true; for(j=0;j<times.length;j++) lines.push({t:times[j],text:txt}); }
+    else { if(/^\s*\[[a-zA-Z#]+:/.test(line)) continue; lines.push({t:-1,text:txt}); }
+  }
+  if(synced) lines.sort(function(a,b){ return a.t-b.t; });
+  return {lines:lines, synced:synced};
+}
+function loadLyrics(){
+  var key=NP?NP.Path:null;
+  if(key===lyricsFor) return;
+  lyricsFor=key; lyrics='none';
+  if(!key) return;
+  var base=key.replace(/\.[^.\\\/]+$/,'');
+  var text=readFirst([base+'.lrc', base+'.txt']);
+  if(text) lyrics=parseLyrics(text);
 }
 function drawCover(gr,x,y,sz,rad,h,seed){
   var img=getArt(h);
@@ -358,8 +389,22 @@ function drawQueue(gr){
   HB_TABS.push({x0:x+76,y0:r.y+8,x1:x+152,y1:r.y+48,tab:'lyrics'});
 
   if(!qOn){
-    tL(gr,'Lyrics',FONT.sect,COL.text,x,r.y+74,r.w-36,24);
-    tL(gr,'ESLyric / .lrc beside the track — wiring next.',FONT.qArtist,COL.text3,x,r.y+104,r.w-36,18);
+    loadLyrics();
+    if(!lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length){
+      tC(gr,'No lyrics found',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2)-28,r.w,24);
+      tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
+      return;
+    }
+    var lyTop=r.y+72, lyBottom=r.y+r.h-14, lh=30, li, cur=-1;
+    if(lyrics.synced){ var pt=fb.PlaybackTime; for(li=0;li<lyrics.lines.length;li++){ if(lyrics.lines[li].t<=pt) cur=li; else break; } }
+    var vis=Math.floor((lyBottom-lyTop)/lh);
+    var startLine=(cur>=0)?Math.max(0,cur-Math.floor(vis/2)):0;
+    var yy=lyTop;
+    for(li=startLine; li<lyrics.lines.length && yy+lh<=lyBottom; li++){
+      var dim=lyrics.synced?RGBA(255,255,255,80):COL.text2;
+      tL(gr,lyrics.lines[li].text,FONT.lyric,(li===cur)?COL.text:dim,x,yy,r.w-36,lh);
+      yy+=lh;
+    }
     return;
   }
 
