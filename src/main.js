@@ -17,6 +17,10 @@
 
 window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', options:{ grab_focus:false } });
 
+/* ------------------------- colour helpers ------------------------- */
+function RGB(r,g,b){ return (0xff000000|(r<<16)|(g<<8)|b); }
+function RGBA(r,g,b,a){ return ((a<<24)|(r<<16)|(g<<8)|b); }
+
 /* ------------------------- tokens ------------------------- */
 var COL = {
   black:RGB(0,0,0), base:RGB(18,18,18), elev:RGB(24,24,24), hover:RGB(42,42,42),
