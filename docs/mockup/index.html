@@ -11,7 +11,7 @@
   html,body{margin:0;height:100%}
   body{
     background:var(--black); color:var(--text); font-family:var(--font);
-    height:100vh; overflow:hidden; -webkit-font-smoothing:antialiased;
+    height:100%; overflow:hidden; -webkit-font-smoothing:antialiased;
     font-size:14px; line-height:1.4;
   }
   button{font-family:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
@@ -22,7 +22,7 @@
   :focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
 
   /* ---------- shell ---------- */
-  .app{display:grid;grid-template-rows:1fr var(--bar-h);height:100vh;gap:8px;padding:8px}
+  .app{display:grid;grid-template-rows:minmax(0,1fr) var(--bar-h);height:100%;gap:8px;padding:8px}
   .top{display:grid;grid-template-columns:var(--nav-w) 1fr var(--queue-w);gap:8px;min-height:0}
   .panel{background:var(--base);border-radius:var(--r);overflow:hidden;min-height:0}
 
