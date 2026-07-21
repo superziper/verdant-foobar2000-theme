@@ -183,13 +183,13 @@ var maskCache={}, cArtCache={};
 function circleMask(size){
   var k='c'+size; if(maskCache[k]) return maskCache[k];
   var m=gdi.CreateImage(size,size), g=m.GetGraphics();
-  g.FillSolidRect(0,0,size,size,RGB(0,0,0)); g.SetSmoothingMode(2); g.FillEllipse(0,0,size,size,RGB(255,255,255));
+  g.FillSolidRect(0,0,size,size,RGB(255,255,255)); g.SetSmoothingMode(2); g.FillEllipse(0,0,size,size,RGB(0,0,0));
   m.ReleaseGraphics(g); maskCache[k]=m; return m;
 }
 function roundMask(size,rad){
   var k='r'+size+'_'+rad; if(maskCache[k]) return maskCache[k];
   var m=gdi.CreateImage(size,size), g=m.GetGraphics();
-  g.FillSolidRect(0,0,size,size,RGB(0,0,0)); g.SetSmoothingMode(2); g.FillRoundRect(0,0,size,size,rad,rad,RGB(255,255,255));
+  g.FillSolidRect(0,0,size,size,RGB(255,255,255)); g.SetSmoothingMode(2); g.FillRoundRect(0,0,size,size,rad,rad,RGB(0,0,0));
   m.ReleaseGraphics(g); maskCache[k]=m; return m;
 }
 function maskedArt(h,seed,size,mask,tag){
