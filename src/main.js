@@ -56,6 +56,8 @@ FONT.sect2 = gf('Segoe UI',22,1);
 FONT.searchTxt = gf('Segoe UI Semibold',16,0);
 FONT.searchIco = gf('Segoe MDL2 Assets',15);
 FONT.lyric = gf('Segoe UI',18,1);
+FONT.fsLyric = gf('Segoe UI',30,1);
+FONT.fsSrc = gf('Segoe UI Semibold',13,0);
 FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
@@ -107,7 +109,13 @@ var ICONS={
  search:"<path d='M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.49 4.49 0 0 1 9.5 14z'/>",
  add:"<path d='M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z'/>",
  more:"<path d='M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'/>",
- clock:"<path d='M11.99 2A10 10 0 1 0 22 12 10 10 0 0 0 11.99 2zM12 20a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z'/>"
+ clock:"<path d='M11.99 2A10 10 0 1 0 22 12 10 10 0 0 0 11.99 2zM12 20a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z'/>",
+ expand:"<path d='M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z'/>",
+ compress:"<path d='M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z'/>",
+ mic:"<path d='M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z'/>",
+ equalizer:"<path d='M10 20h4V4h-4zm-6 0h4v-8H4zm12-11v11h4V9z'/>",
+ heart:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2zm0-2.7c3.9-3.54 6-5.65 6-8.5A2.5 2.5 0 0 0 12.86 8h-1.72A2.5 2.5 0 0 0 6 9.5c0 2.85 2.1 4.96 6 8.5z'/>",
+ heartFill:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2z'/>"
 };
 var svgCache={};
 function iconImg(name,size,col){
@@ -212,22 +220,41 @@ function currentLyricLine(){
   for(var i=0;i<lyrics.lines.length;i++){ if(lyrics.lines[i].t<=pt) c=i; else break; }
   return c;
 }
-// Wrap each phrase to the panel width and precompute cumulative block geometry. Cached by width.
-function lyLayout(gr,maxW){
-  if(lyLay.lyr===lyrics && lyLay.w===maxW) return lyLay;
-  var subLh=Math.round(gr.CalcTextHeight('Ag',FONT.lyric))+4, gap=Math.round(subLh*0.55);
+// Wrap each phrase to the given width+font and precompute cumulative block geometry. Cached by width+font.
+function lyLayout(gr,maxW,font){
+  font=font||FONT.lyric;
+  if(lyLay.lyr===lyrics && lyLay.w===maxW && lyLay.font===font) return lyLay;
+  var subLh=Math.round(gr.CalcTextHeight('Ag',font))+4, gap=Math.round(subLh*0.55);
   var subs=[], top=[], cen=[], blockH=[], acc=0;
   for(var i=0;i<lyrics.lines.length;i++){
-    var wr=gr.EstimateLineWrap(lyrics.lines[i].text||'',FONT.lyric,maxW), parts=[];
+    var wr=gr.EstimateLineWrap(lyrics.lines[i].text||'',font,maxW), parts=[];
     for(var j=0;j<wr.length;j+=2) parts.push(wr[j]);
     if(!parts.length) parts=[''];
     var bh=parts.length*subLh;
     subs.push(parts); top.push(acc); blockH.push(bh); cen.push(acc+bh/2); acc+=bh+gap;
   }
-  lyLay={lyr:lyrics,w:maxW,subs:subs,top:top,cen:cen,blockH:blockH,subLh:subLh};
+  lyLay={lyr:lyrics,w:maxW,font:font,subs:subs,top:top,cen:cen,blockH:blockH,subLh:subLh};
   return lyLay;
 }
-function lyTick(){ var d=lyTarget-lyScroll; if(Math.abs(d)<0.5){ lyScroll=lyTarget; stopLyAnim(); } else lyScroll+=d*0.25; dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+// Shared rolling synced-lyric renderer (queue tab + fullscreen). align: 'c' centred / 'l' left.
+function drawRollingLyrics(gr,x,top,w,bot,font,curCol,align){
+  var viewMid=Math.round((top+bot)/2), L=lyLayout(gr,w,font), subLh=L.subLh, li,s;
+  lyCur=currentLyricLine();
+  lyTarget=L.cen[lyCur]||0;
+  if(lySnap){ lyScroll=lyTarget; lySnap=false; } else if(Math.abs(lyTarget-lyScroll)>0.5) startLyAnim();
+  for(li=0;li<lyrics.lines.length;li++){
+    var bcY=viewMid+(L.cen[li]-lyScroll);
+    if(bcY<top-L.blockH[li] || bcY>bot+L.blockH[li]) continue;
+    var isCur=(li===lyCur), dist=Math.abs(bcY-viewMid), a=clamp01(1-dist/(viewMid-top));
+    var col=isCur?curCol:RGBA(255,255,255,Math.round(24+120*a));
+    var parts=L.subs[li], bTop=Math.round(bcY-L.blockH[li]/2);
+    for(s=0;s<parts.length;s++){ if(align==='l') tL(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); else tC(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); }
+  }
+}
+function lyTick(){
+  var d=lyTarget-lyScroll; if(Math.abs(d)<0.5){ lyScroll=lyTarget; stopLyAnim(); } else lyScroll+=d*0.25;
+  if(fsMode){ repaintAll(); } else { dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+}
 function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 // Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
@@ -433,6 +460,8 @@ function newPlaylistName(){ var b='New Playlist', nm=b, k=1, i; for(;;){ var hit
 function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, newPlaylistName()); }
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+// Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
+var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[], fsBgCache={key:null,img:null};
 // Keyboard capture on only in Search view. Re-asserted every full paint + on_size
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
@@ -503,7 +532,7 @@ function updateNP(){
   npTitleStr=m?TF.npTitle.EvalWithMetadb(m):'';
   npArtistStr=m?TF.npArtist.EvalWithMetadb(m):'';
 }
-function repaintBar(){ dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
+function repaintBar(){ if(fsMode){ repaintAll(); return; } dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
 
 /* ------------------------- paint ------------------------- */
 function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
@@ -560,6 +589,7 @@ function drawOverlays(gr){
 }
 function on_paint(gr){
   gr.SetSmoothingMode(2);
+  if(fsMode){ dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; HB_DOTS=[]; drawFullscreen(gr); return; }
   var anyPartial=dirtyBar||dirtyQueue||dirtySearch;
   if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
     dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false;
@@ -906,22 +936,10 @@ function drawQueue(gr){
       tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
       return;
     }
-    var viewTop=r.y+64, viewBot=r.y+r.h-16, viewMid=Math.round((viewTop+viewBot)/2), maxW=r.w-28, li;
+    var viewTop=r.y+64, viewBot=r.y+r.h-16, maxW=r.w-28, li;
     var L=lyLayout(gr,maxW), subLh=L.subLh, s;
     if(lyrics.synced){
-      lyCur=currentLyricLine();
-      lyTarget=L.cen[lyCur]||0;
-      if(lySnap){ lyScroll=lyTarget; lySnap=false; }
-      else if(Math.abs(lyTarget-lyScroll)>0.5) startLyAnim();
-      for(li=0;li<lyrics.lines.length;li++){
-        var bcY=viewMid+(L.cen[li]-lyScroll);                          // this phrase's block centre, on screen
-        if(bcY<viewTop-L.blockH[li] || bcY>viewBot+L.blockH[li]) continue;
-        var isCur=(li===lyCur);
-        var dist=Math.abs(bcY-viewMid), a=clamp01(1-dist/(viewMid-viewTop));
-        var col=isCur?COL.green:RGBA(255,255,255,Math.round(28+112*a));
-        var parts=L.subs[li], bTop=Math.round(bcY-L.blockH[li]/2);
-        for(s=0;s<parts.length;s++) tC(gr,parts[s],FONT.lyric,col,r.x+14,bTop+s*subLh,maxW,subLh);
-      }
+      drawRollingLyrics(gr,r.x+14,viewTop,maxW,viewBot,FONT.lyric,COL.green,'c');
     } else {
       stopLyAnim();
       var yy=viewTop+6;
@@ -997,12 +1015,146 @@ function drawBar(gr){
   HB_SEEK={x0:sbX,y0:sbY-9,x1:sbX+sbW,y1:sbY+13,x:sbX,w:sbW};
   // right: volume (Preferences now lives in the File/Library menu up top)
   var gearC=by+M.barH/2;
-  var volW=92, volX=W-16-volW, volY=gearC-2;
+  var fsx=W-40;   // enter-fullscreen button, far right
+  drawIcon(gr,'expand',hv(fsx-6,gearC-14,fsx+26,gearC+14)?COL.text:COL.text2,fsx,gearC-12,24,24,20);
+  HB_CTRL.push({x0:fsx-6,y0:gearC-14,x1:fsx+26,y1:gearC+14,act:'fullscreen'});
+  var volW=92, volX=fsx-20-volW, volY=gearC-2;
   drawIcon(gr,'volume',COL.text2,volX-28,gearC-12,24,24,20);
   var vp=clamp01(vol2pos(fb.Volume));
   gr.FillSolidRect(volX,volY,volW,4,COL.seekbg);
   gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
   HB_VOL={x0:volX,y0:volY-9,x1:volX+volW,y1:volY+13,x:volX,w:volW};
+}
+
+/* ------------------------- fullscreen "chill" mode ------------------------- */
+function enterFullscreen(){ fsMode=true; try{ if(UIWizard && UIWizard.WindowState!==1) UIWizard.ToggleMaximize(); }catch(e){} if(fsView==='viz') startViz(); if(fsView==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
+function exitFullscreen(){ fsMode=false; stopViz(); repaintAll(); }
+function setFsView(v){ fsView=v; if(v==='viz') startViz(); else stopViz(); if(v==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
+function doFsAct(act){
+  if(act==='exit') exitFullscreen();
+  else if(act==='lyrics') setFsView(fsView==='lyrics'?'default':'lyrics');
+  else if(act==='viz') setFsView(fsView==='viz'?'default':'viz');
+}
+// ---- audio spectrum visualizer (real PCM via fb.GetAudioChunk -> FFT bars) ----
+var VIZ_N=56;
+function vizUpdate(){
+  if(!fsMode || fsView!=='viz'){ stopViz(); return; }
+  var N=512, re=new Array(N), im=new Array(N), i, ok=false;
+  try{
+    var ch=fb.GetAudioChunk(0.06);
+    if(ch && ch.SampleCount>0){
+      var d=ch.Data, cc=ch.ChannelCount||2, sc=ch.SampleCount, step=Math.max(1,Math.floor(sc/N));
+      for(i=0;i<N;i++){ var si=(i*step)*cc, v=0; if(si<d.length){ for(var c=0;c<cc;c++) v+=d[si+c]||0; v/=cc; } var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); re[i]=v*w; im[i]=0; }
+      ok=true;
+    }
+  }catch(e){ ok=false; }
+  if(!ok){ for(i=0;i<VIZ_N;i++) vizBars[i]=(vizBars[i]||0)*0.82; repaintAll(); return; }
+  // simple DFT-ish magnitude via naive FFT (N=512, power of 2)
+  fftMag(re,im,N);
+  var bars=[], nb=VIZ_N, half=N/2;
+  for(i=0;i<nb;i++){
+    var f0=Math.floor(Math.pow(half,i/nb)), f1=Math.max(f0+1,Math.floor(Math.pow(half,(i+1)/nb))), m=0;
+    for(var f=f0;f<f1 && f<half;f++){ var mag=Math.sqrt(re[f]*re[f]+im[f]*im[f]); if(mag>m) m=mag; }
+    var val=clamp01(Math.log(1+m*8)/3.5);
+    vizBars[i]=Math.max(val,(vizBars[i]||0)*0.80);   // smooth falloff
+  }
+  repaintAll();
+}
+function fftMag(re,im,n){
+  var i,j=0,k,l,t; for(i=1;i<n;i++){ var bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ t=re[i];re[i]=re[j];re[j]=t; t=im[i];im[i]=im[j];im[j]=t; } }
+  for(l=2;l<=n;l<<=1){ var ang=-2*Math.PI/l, wr=Math.cos(ang), wi=Math.sin(ang); for(i=0;i<n;i+=l){ var cr=1,ci=0; for(k=0;k<l/2;k++){ var pr=re[i+k], pi=im[i+k], qr=cr*re[i+k+l/2]-ci*im[i+k+l/2], qi=cr*im[i+k+l/2]+ci*re[i+k+l/2]; re[i+k]=pr+qr; im[i+k]=pi+qi; re[i+k+l/2]=pr-qr; im[i+k+l/2]=pi-qi; var ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr; } } }
+}
+function startViz(){ if(!vizTimer){ vizTimer=window.SetInterval(vizUpdate,45); } }
+function stopViz(){ if(vizTimer){ window.ClearInterval(vizTimer); vizTimer=null; } }
+// darkened, cover-fit album background (cached per art+size)
+function fsBg(gr){
+  var art=getArt(NP), key=(art?albKey(NP):'none')+'|'+W+'x'+H;
+  if(fsBgCache.key!==key){
+    var bmp=null;
+    try{
+      bmp=gdi.CreateImage(W,H); var g=bmp.GetGraphics();
+      if(art){ var s=Math.max(W/art.Width,H/art.Height), dw=art.Width*s, dh=art.Height*s; g.DrawImage(art,Math.round((W-dw)/2),Math.round((H-dh)/2),Math.round(dw),Math.round(dh),0,0,art.Width,art.Height); g.FillSolidRect(0,0,W,H,RGBA(0,0,0,150)); }
+      else { g.FillSolidRect(0,0,W,H,RGB(28,28,34)); }
+      g.FillGradRect(0,H-320,W,320,90,RGBA(0,0,0,0),RGBA(0,0,0,150),1.0);
+      bmp.ReleaseGraphics(g);
+    }catch(e){ bmp=null; }
+    fsBgCache={key:key,img:bmp};
+  }
+  if(fsBgCache.img) gr.DrawImage(fsBgCache.img,0,0,W,H,0,0,fsBgCache.img.Width,fsBgCache.img.Height);
+  else gr.FillSolidRect(0,0,W,H,RGB(24,24,28));
+}
+function fsIcon(gr,name,col,x,y,sz,act){
+  drawIcon(gr,name,hv(x-8,y-8,x+sz+8,y+sz+8)?COL.text:col,x,y,sz,sz,sz);
+  HB_FS.push({x0:x-8,y0:y-8,x1:x+sz+8,y1:y+sz+8,act:act});
+}
+function fsMiniNP(gr){   // small cover + title + artist, top-left (lyrics/viz views)
+  var s=64;
+  drawRounded(gr,64,48,s,6,NP,'np');
+  tL(gr,npTitleStr||'Nothing playing',FONT.sect2,COL.text,64+s+18,54,W/2,26);
+  tL(gr,npArtistStr,FONT.qName,COL.text2,64+s+18,86,W/2,20);
+}
+function drawFsDefault(gr,bot){
+  var sz=Math.min(360,Math.round(H*0.36)), ax=72, ay=bot-sz;
+  drawRounded(gr,ax,ay,sz,12,NP,'np');
+  var tx=ax+sz+40, tw=W-tx-72;
+  tL(gr,npTitleStr||'Nothing playing',FONT.title,COL.text,tx,ay+sz-150,tw,90);
+  tL(gr,npArtistStr,FONT.sect2,COL.text2,tx,ay+sz-46,tw,32);
+}
+function drawFsLyrics(gr,bot){
+  fsMiniNP(gr);
+  if(!lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length){ tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,Math.round(H*0.45),W,40); return; }
+  if(lyrics.synced) drawRollingLyrics(gr,140,150,W-280,bot,FONT.fsLyric,COL.green,'l');
+  else { stopLyAnim(); var L=lyLayout(gr,W-280,FONT.fsLyric), yy=170, s; for(var li=0;li<lyrics.lines.length;li++){ var p=L.subs[li]; for(s=0;s<p.length&&yy+L.subLh<=bot;s++){ tL(gr,p[s],FONT.fsLyric,COL.text2,140,yy,W-280,L.subLh); yy+=L.subLh; } yy+=Math.round(L.subLh*0.4); if(yy>=bot) break; } }
+}
+function drawFsViz(gr,bot){
+  fsMiniNP(gr);
+  var n=VIZ_N, top=170, h=bot-top-20, midY=top+h, gap=6, bw=Math.max(3,Math.floor((W-280-(n-1)*gap)/n)), x0=Math.round((W-(n*bw+(n-1)*gap))/2);
+  for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(3,Math.round(v*h)); gr.FillRoundRect(x0+i*(bw+gap),midY-bh,bw,bh,2,2,blend(COL.green,COL.text,0.15)); }
+}
+function drawFsBar(gr){
+  var playing=fb.IsPlaying&&!fb.IsPaused, by=H-150;
+  var sbX=72, sbW=W-144, sbY=by+30;
+  var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
+  gr.FillSolidRect(sbX,sbY,sbW,4,RGBA(255,255,255,55));
+  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
+  tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-54,sbY-6,46,16);
+  tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,46,16);
+  HB_SEEK={x0:sbX,y0:sbY-10,x1:sbX+sbW,y1:sbY+14,x:sbX,w:sbW};
+  var cxC=Math.round(W/2), cy=by+86, pb=56, pbx=cxC-pb/2, pby=cy-pb/2;
+  var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
+  ctrlBtn(gr,'shuffle',cxC-150,cy,shufOn,'shuffle');
+  ctrlBtn(gr,'prev',cxC-84,cy,false,'prev');
+  gr.FillEllipse(pbx,pby,pb,pb,COL.text);
+  drawIcon(gr,playing?'pause':'play',COL.black,pbx,pby,pb,pb,Math.round(pb*0.5));
+  HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
+  ctrlBtn(gr,'next',cxC+84,cy,false,'next');
+  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+150,cy,repMode>0,'repeat');
+  fsIcon(gr,'heart',COL.text2,72,cy-13,26,'like');
+  var rx=W-72;
+  fsIcon(gr,'compress',COL.text2,rx-26,cy-13,26,'exit');
+  var volW=120, volX=rx-26-46-volW, volY=cy-2;
+  drawIcon(gr,'volume',COL.text2,volX-32,cy-12,24,24,20);
+  var vp=clamp01(vol2pos(fb.Volume));
+  gr.FillSolidRect(volX,volY,volW,4,RGBA(255,255,255,55));
+  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
+  HB_VOL={x0:volX,y0:volY-10,x1:volX+volW,y1:volY+14,x:volX,w:volW};
+  fsIcon(gr,'equalizer',fsView==='viz'?COL.green:COL.text2,volX-116,cy-13,26,'viz');
+  fsIcon(gr,'mic',fsView==='lyrics'?COL.green:COL.text2,volX-74,cy-13,26,'lyrics');
+}
+function drawFullscreen(gr){
+  HB_CTRL=[]; HB_SEEK=null; HB_VOL=null; HB_FS=[]; SB=null; SBH=null; SBN=null;
+  fsBg(gr);
+  var bot=H-172;
+  if(fsView==='lyrics') drawFsLyrics(gr,bot);
+  else if(fsView==='viz') drawFsViz(gr,bot);
+  else {
+    var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null, pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
+    var src=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?plman.GetPlaylistName(pli):'Your Library';
+    tL(gr,'PLAYING FROM PLAYLIST',FONT.fsSrc,COL.text2,72,54,W-144,18);
+    tL(gr,src,FONT.sect,COL.text,72,76,W-144,28);
+    drawFsDefault(gr,bot);
+  }
+  drawFsBar(gr);
 }
 
 /* ------------------------- input ------------------------- */
@@ -1063,6 +1215,7 @@ function doCtrl(act){
   else if(act==='prev') fb.Prev();
   else if(act==='shuffle'){ var o=readOrder(); setOrder(o>=3?0:4); }
   else if(act==='repeat'){ var o=readOrder(); setOrder(o===0?1:(o===1?2:0)); }
+  else if(act==='fullscreen'){ enterFullscreen(); return; }
   repaintAll();
 }
 function on_mouse_lbtn_up(x,y){
@@ -1093,6 +1246,11 @@ function on_mouse_lbtn_up(x,y){
   if(drag==='scroll'){ drag=null; repaintAll(); return; }
   if(drag==='scrollh'){ drag=null; repaintAll(); return; }
   if(drag==='scrolln'){ drag=null; repaintAll(); return; }
+  if(fsMode){
+    var f2; for(f2=0;f2<HB_FS.length;f2++){ if(inRect(x,y,HB_FS[f2])){ doFsAct(HB_FS[f2].act); return; } }
+    var c3; for(c3=0;c3<HB_CTRL.length;c3++){ if(inRect(x,y,HB_CTRL[c3])){ doCtrl(HB_CTRL[c3].act); return; } }
+    return;
+  }
   if(y<TBH){
     var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
     if(HB_CAP){
@@ -1158,6 +1316,7 @@ function on_char(code){
   searchScroll=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
 }
 function on_mouse_wheel(step){
+  if(fsMode){ fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return; }
   if(R.navLib && mx>=R.navLib.x && mx<R.navLib.x+R.navLib.w && my>=R.navLib.y && my<R.navLib.y+R.navLib.h){
     navScroll-=step; if(navScroll<0)navScroll=0; if(navScroll>NAV_MAX)navScroll=NAV_MAX; repaintAll(); return;
   }
@@ -1191,7 +1350,7 @@ function on_drag_drop(action,x,y,mask){
   } else action.Effect=0;
   navDropHover=false; repaintAll();
 }
-function on_script_unload(){ stopLyAnim(); stopCaret(); }
+function on_script_unload(){ stopLyAnim(); stopCaret(); stopViz(); }
 function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
 function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
 function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
@@ -1203,7 +1362,8 @@ function on_playback_stop(){ updateNP(); repaintAll(); }
 function on_playback_pause(){ updateNP(); repaintAll(); }
 function on_playback_time(){
   repaintBar();
-  if(rightTab==='lyrics' && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
+  var lyricsShown=(rightTab==='lyrics')||(fsMode&&fsView==='lyrics');
+  if(lyricsShown && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
 }
 function on_playback_seek(){ repaintAll(); }
 function on_playback_order_changed(){ repaintBar(); }
