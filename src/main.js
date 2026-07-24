@@ -62,6 +62,11 @@ FONT.cap = gf('Segoe MDL2 Assets',10);
 /* Custom window title bar via UI Wizard (foo_ui_wizard, already installed) — frameless + our own controls */
 var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
 var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
+FONT.menu = gf('Segoe UI',12);
+var MENUS=[['File','file'],['Edit','edit'],['View','View'],['Playback','playback'],['Library','library'],['Help','help']];
+var MENU_END=0, capW=-1, capEnd=-1;
+function applyCaption(){ if(!UIWizard) return; if(capW===W && capEnd===MENU_END) return; capW=W; capEnd=MENU_END; try{ UIWizard.SetCaptionAreaSize(MENU_END,0,Math.max(0,W-CAPBW*3-MENU_END),TBH); }catch(e){} }
+function openMenu(root,x,y){ try{ var mm=fb.CreateMainMenuManager(); mm.Init(root); var m=window.CreatePopupMenu(); mm.BuildMenu(m,1,600); var id=m.TrackPopupMenu(x,y); if(id>0) mm.ExecuteByID(id-1); }catch(e){} }
 
 /* ------------------------- title formats ------------------------- */
 var TF = {
@@ -236,7 +241,7 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
-var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null;
+var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[];
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
@@ -267,7 +272,8 @@ function layout(){
   R.main={x:R.mainX,y:top0,w:R.mainW,h:topH};
   R.queue={x:R.queueX,y:top0,w:R.queueW,h:topH};
   // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
-  if(UIWizard){ try{ UIWizard.FrameStyle=3; UIWizard.MoveStyle=0; UIWizard.SetCaptionAreaSize(0,0,Math.max(0,W-CAPBW*3),TBH); UIWizard.DisableWindowSizing=false; }catch(e){} }
+  if(UIWizard){ try{ UIWizard.FrameStyle=3; UIWizard.MoveStyle=0; UIWizard.DisableWindowSizing=false; }catch(e){} }
+  capW=-1; applyCaption();
 }
 function on_size(w,h){ W=w; H=h; layout(); }
 
@@ -304,7 +310,17 @@ function drawCapBtn(gr,glyph,x,w,isClose){
 }
 function drawTitleBar(gr){
   gr.FillSolidRect(0,0,W,TBH,COL.black);
-  tL(gr,'foobar × Spotify',FONT.plSub,COL.text3,14,0,300,TBH);
+  // menu bar (left): real foobar File / Edit / View / Playback / Library / Help
+  HB_MENU=[]; var mx0=12;
+  for(var mi=0;mi<MENUS.length;mi++){
+    var lbl=MENUS[mi][0], mw=gr.CalcTextWidth(lbl,FONT.menu)+24, mhover=hv(mx0,0,mx0+mw,TBH);
+    if(mhover) gr.FillSolidRect(mx0,0,mw,TBH,RGB(40,40,40));
+    tC(gr,lbl,FONT.menu,mhover?COL.text:COL.text2,mx0,0,mw,TBH);
+    HB_MENU.push({x0:mx0,y0:0,x1:mx0+mw,y1:TBH,root:MENUS[mi][1],mx:mx0});
+    mx0+=mw;
+  }
+  if(mx0!==MENU_END){ MENU_END=mx0; applyCaption(); }
+  // window controls (right)
   var closeX=W-CAPBW, maxX=W-CAPBW*2, minX=W-CAPBW*3;
   drawCapBtn(gr,GLYPH.cmin,minX,CAPBW,false);
   drawCapBtn(gr,winMaxed()?GLYPH.crestore:GLYPH.cmax,maxX,CAPBW,false);
@@ -622,11 +638,9 @@ function drawBar(gr){
   tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
   tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
   HB_SEEK={x0:sbX,y0:sbY-9,x1:sbX+sbW,y1:sbY+13,x:sbX,w:sbW};
-  // right: volume + gear(prefs)
-  var gearX=W-30, gearC=by+M.barH/2;
-  tC(gr,GLYPH.settings,FONT.icon,COL.text3,gearX-12,gearC-12,24,24);
-  HB_PREFS={x0:gearX-16,y0:gearC-16,x1:gearX+16,y1:gearC+16};
-  var volW=92, volX=gearX-30-volW, volY=gearC-2;
+  // right: volume (Preferences now lives in the File/Library menu up top)
+  var gearC=by+M.barH/2;
+  var volW=92, volX=W-16-volW, volY=gearC-2;
   tC(gr,GLYPH.volume,FONT.icon,COL.text2,volX-26,gearC-12,20,24);
   var vp=clamp01(vol2pos(fb.Volume));
   gr.FillSolidRect(volX,volY,volW,4,COL.seekbg);
@@ -686,16 +700,18 @@ function doCtrl(act){
 function on_mouse_lbtn_up(x,y){
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
   if(drag==='vol'){ drag=null; return; }
-  if(HB_CAP && y<TBH){
-    if(x>=HB_CAP.closeX){ fb.Exit(); return; }
-    if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } window.Repaint(); return; }
-    if(x>=HB_CAP.minX){ if(UIWizard){ try{ UIWizard.WindowMinimize(); }catch(e){} } return; }
+  if(y<TBH){
+    var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
+    if(HB_CAP){
+      if(x>=HB_CAP.closeX){ fb.Exit(); return; }
+      if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } window.Repaint(); return; }
+      if(x>=HB_CAP.minX){ if(UIWizard){ try{ UIWizard.WindowMinimize(); }catch(e){} } return; }
+    }
     return;
   }
   var i;
   for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); window.Repaint(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
-  if(HB_PREFS && inRect(x,y,HB_PREFS)){ fb.ShowPreferences(); return; }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; window.Repaint(); return; }
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; window.Repaint(); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } window.Repaint(); return; } }
@@ -705,7 +721,7 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
-  if(HB_CAP && y<TBH && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0);
+  if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
   for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
   for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
