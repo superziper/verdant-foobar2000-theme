@@ -327,7 +327,7 @@ var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search')?DLGC_WANTALLKEYS:0; }catch(e){} }
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
-var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchPls=[], searchTrks=[], HB_SEARCH=null;
+var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
 var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
@@ -605,13 +605,13 @@ function drawSearch(gr,r){
   tL(gr,empty?'What do you want to play?':(searchQuery+'|'),FONT.sect2,empty?COL.text3:COL.text,x0+48,boxY,boxW-60,boxH);
   if(empty) return;
   var y=boxY+boxH+26, any=false;
-  if(searchPls.length){
+  if(searchArts.length){
     any=true;
-    tL(gr,'Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
+    tL(gr,'Artists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
     var gap=16,cardW=176,cols=Math.max(2,Math.floor((w+gap)/(cardW+gap))); cardW=Math.floor((w-gap*(cols-1))/cols);
     var cardH=cardW+56;
-    for(i=0;i<searchPls.length;i++) drawPlaylistCard(gr,x0+(i%cols)*(cardW+gap),y+Math.floor(i/cols)*(cardH+8),cardW,searchPls[i]);
-    y+=Math.ceil(searchPls.length/cols)*(cardH+8)+18;
+    for(i=0;i<searchArts.length;i++) drawArtistCard(gr,x0+(i%cols)*(cardW+gap),y+Math.floor(i/cols)*(cardH+8),cardW,searchArts[i]);
+    y+=Math.ceil(searchArts.length/cols)*(cardH+8)+18;
   }
   if(searchTrks.length){
     any=true;
@@ -775,10 +775,10 @@ function getSearchIdx(){
 function computeSearch(){
   var q=searchQuery.trim().toLowerCase();
   if(q===searchQ2) return;
-  searchQ2=q; searchPls=[]; searchTrks=[];
+  searchQ2=q; searchArts=[]; searchTrks=[];
   if(!q) return;
-  var n=plman.PlaylistCount, i;
-  for(i=0;i<n;i++){ var nm=plman.GetPlaylistName(i); if(nm===ROUTE) continue; if(nm.toLowerCase().indexOf(q)>=0) searchPls.push(i); }
+  var arts=getArtistList(), i;
+  for(i=0;i<arts.length && searchArts.length<24;i++){ if(arts[i].name.toLowerCase().indexOf(q)>=0) searchArts.push(arts[i]); }
   var idx=getSearchIdx(), cnt=0;
   for(i=0;i<idx.length && cnt<150;i++){ if(idx[i].key.indexOf(q)>=0){ searchTrks.push(idx[i]); cnt++; } }
 }
