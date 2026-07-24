@@ -115,7 +115,8 @@ var ICONS={
  mic:"<path d='M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z'/>",
  equalizer:"<path d='M10 20h4V4h-4zm-6 0h4v-8H4zm12-11v11h4V9z'/>",
  heart:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2zm0-2.7c3.9-3.54 6-5.65 6-8.5A2.5 2.5 0 0 0 12.86 8h-1.72A2.5 2.5 0 0 0 6 9.5c0 2.85 2.1 4.96 6 8.5z'/>",
- heartFill:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2z'/>"
+ heartFill:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2z'/>",
+ chevron:"<path d='M7 10l5 5 5-5z'/>"
 };
 var svgCache={};
 function iconImg(name,size,col){
@@ -462,6 +463,9 @@ var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
 var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[], fsBgCache={key:null,img:null};
+var vizStyle='bars', vizMenuOpen=false, VIZ_MENU_HB=[], vizWave=[];
+var VIZ_STYLES=[['Bars','bars'],['Mirrored','mirror'],['Waveform','wave'],['Radial','radial']];
+function vizStyleLabel(){ for(var i=0;i<VIZ_STYLES.length;i++) if(VIZ_STYLES[i][1]===vizStyle) return VIZ_STYLES[i][0]; return 'Bars'; }
 // Keyboard capture on only in Search view. Re-asserted every full paint + on_size
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
@@ -1028,12 +1032,13 @@ function drawBar(gr){
 
 /* ------------------------- fullscreen "chill" mode ------------------------- */
 function enterFullscreen(){ fsMode=true; try{ if(UIWizard && UIWizard.WindowState!==1) UIWizard.ToggleMaximize(); }catch(e){} if(fsView==='viz') startViz(); if(fsView==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
-function exitFullscreen(){ fsMode=false; stopViz(); repaintAll(); }
-function setFsView(v){ fsView=v; if(v==='viz') startViz(); else stopViz(); if(v==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
+function exitFullscreen(){ fsMode=false; vizMenuOpen=false; stopViz(); repaintAll(); }
+function setFsView(v){ fsView=v; vizMenuOpen=false; if(v==='viz') startViz(); else stopViz(); if(v==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
 function doFsAct(act){
   if(act==='exit') exitFullscreen();
-  else if(act==='lyrics') setFsView(fsView==='lyrics'?'default':'lyrics');
-  else if(act==='viz') setFsView(fsView==='viz'?'default':'viz');
+  else if(act==='lyrics'){ vizMenuOpen=false; setFsView(fsView==='lyrics'?'default':'lyrics'); }
+  else if(act==='viz'){ vizMenuOpen=false; setFsView(fsView==='viz'?'default':'viz'); }
+  else if(act==='vizmenu'){ vizMenuOpen=!vizMenuOpen; repaintAll(); }
 }
 // ---- audio spectrum visualizer (real PCM via fb.GetAudioChunk -> FFT bars) ----
 var VIZ_N=56;
@@ -1044,7 +1049,9 @@ function vizUpdate(){
     var ch=fb.GetAudioChunk(0.06);
     if(ch && ch.SampleCount>0){
       var d=ch.Data, cc=ch.ChannelCount||2, sc=ch.SampleCount, step=Math.max(1,Math.floor(sc/N));
-      for(i=0;i<N;i++){ var si=(i*step)*cc, v=0; if(si<d.length){ for(var c=0;c<cc;c++) v+=d[si+c]||0; v/=cc; } var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); re[i]=v*w; im[i]=0; }
+      var wv=[];
+      for(i=0;i<N;i++){ var si=(i*step)*cc, v=0; if(si<d.length){ for(var c=0;c<cc;c++) v+=d[si+c]||0; v/=cc; } wv[i]=v; var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); re[i]=v*w; im[i]=0; }
+      vizWave=wv;   // raw mono for the waveform style
       ok=true;
     }
   }catch(e){ ok=false; }
@@ -1108,9 +1115,43 @@ function drawFsLyrics(gr,bot){
 }
 function drawFsViz(gr,bot){
   fsMiniNP(gr);
-  var n=VIZ_N, top=170, h=bot-top-20, midY=top+h, gap=6, bw=Math.max(3,Math.floor((W-280-(n-1)*gap)/n)), x0=Math.round((W-(n*bw+(n-1)*gap))/2);
-  var bcol=blend(COL.green,COL.text,0.15);
-  for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(3,Math.round(v*h)); gr.FillSolidRect(x0+i*(bw+gap),midY-bh,bw,bh,bcol); }
+  var top=200, cy=Math.round((top+bot)/2), col=blend(COL.green,COL.text,0.15);
+  if(vizStyle==='mirror'){
+    var n=VIZ_N, gap=6, bw=Math.max(3,Math.floor((W-280-(n-1)*gap)/n)), x0=Math.round((W-(n*bw+(n-1)*gap))/2), hh=(bot-top)/2-10;
+    for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(2,Math.round(v*hh)), bx=x0+i*(bw+gap); gr.FillSolidRect(bx,cy-bh,bw,bh*2,col); }
+  } else if(vizStyle==='wave'){
+    var pts=vizWave.length?vizWave:[], amp=(bot-top)/2-10, px=140, pw=W-280, m=Math.max(1,pts.length-1), lx=px, ly=cy, k;
+    for(k=0;k<pts.length;k++){ var nx=px+Math.round(pw*k/m), ny=cy-Math.round(Math.max(-1,Math.min(1,pts[k]))*amp); if(k>0) gr.DrawLine(lx,ly,nx,ny,2,col); lx=nx; ly=ny; }
+    if(!pts.length) gr.DrawLine(px,cy,px+pw,cy,2,col);
+  } else if(vizStyle==='radial'){
+    var n2=VIZ_N, ccx=Math.round(W/2), ccy=cy, R=Math.min(bot-top,W*0.5)/2-40, maxLen=R*0.9;
+    for(var r=0;r<n2;r++){ var vv=vizBars[r]||0, ang=(r/n2)*Math.PI*2-Math.PI/2, ln=8+vv*maxLen; var ix=ccx+Math.cos(ang)*R, iy=ccy+Math.sin(ang)*R, ox=ccx+Math.cos(ang)*(R+ln), oy=ccy+Math.sin(ang)*(R+ln); gr.DrawLine(ix,iy,ox,oy,3,col); }
+    drawCircle(gr,ccx-R+14,ccy-R+14,(R-14)*2,NP,'np');
+  } else {  // bars (default)
+    var n3=VIZ_N, gap3=6, bw3=Math.max(3,Math.floor((W-280-(n3-1)*gap3)/n3)), x03=Math.round((W-(n3*bw3+(n3-1)*gap3))/2), h3=bot-top-10, midY=bot-10;
+    for(var b=0;b<n3;b++){ var vb=vizBars[b]||0, bh3=Math.max(3,Math.round(vb*h3)); gr.FillSolidRect(x03+b*(bw3+gap3),midY-bh3,bw3,bh3,col); }
+  }
+  drawVizDropdown(gr);
+}
+// style-picker dropdown (top-right of the visualizer)
+function drawVizDropdown(gr){
+  VIZ_MENU_HB=[];
+  var bw=170, bh=38, bx=W-72-bw, by=52;
+  gr.FillRoundRect(bx,by,bw,bh,8,8,hv(bx,by,bx+bw,by+bh)?RGB(58,58,58):RGBA(0,0,0,90));
+  tL(gr,vizStyleLabel(),FONT.pl,COL.text,bx+16,by,bw-40,bh);
+  drawIcon(gr,'chevron',COL.text2,bx+bw-30,by+8,22,22,18);
+  HB_FS.push({x0:bx,y0:by,x1:bx+bw,y1:by+bh,act:'vizmenu'});
+  if(vizMenuOpen){
+    var iy=by+bh+6;
+    gr.FillSolidRect(bx+3,iy+4,bw,VIZ_STYLES.length*bh+10,RGBA(0,0,0,120));
+    gr.FillRoundRect(bx,iy,bw,VIZ_STYLES.length*bh+10,8,8,RGB(43,43,43));
+    for(var i=0;i<VIZ_STYLES.length;i++){
+      var r=iy+5+i*bh, on=(VIZ_STYLES[i][1]===vizStyle);
+      if(hv(bx,r,bx+bw,r+bh)) gr.FillRoundRect(bx+4,r,bw-8,bh,5,5,RGBA(255,255,255,20));
+      tL(gr,VIZ_STYLES[i][0],FONT.pl,on?COL.green:COL.text,bx+16,r,bw-24,bh);
+      VIZ_MENU_HB.push({x0:bx,y0:r,x1:bx+bw,y1:r+bh,style:VIZ_STYLES[i][1]});
+    }
+  }
 }
 function drawFsBar(gr){
   var playing=fb.IsPlaying&&!fb.IsPaused, by=H-150;
@@ -1248,6 +1289,11 @@ function on_mouse_lbtn_up(x,y){
   if(drag==='scrollh'){ drag=null; repaintAll(); return; }
   if(drag==='scrolln'){ drag=null; repaintAll(); return; }
   if(fsMode){
+    if(vizMenuOpen){
+      var vm; for(vm=0;vm<VIZ_MENU_HB.length;vm++){ if(inRect(x,y,VIZ_MENU_HB[vm])){ vizStyle=VIZ_MENU_HB[vm].style; vizMenuOpen=false; repaintAll(); return; } }
+      var vb2; for(vb2=0;vb2<HB_FS.length;vb2++){ if(inRect(x,y,HB_FS[vb2]) && HB_FS[vb2].act==='vizmenu'){ vizMenuOpen=false; repaintAll(); return; } }
+      vizMenuOpen=false; repaintAll(); return;   // click elsewhere closes the dropdown
+    }
     var f2; for(f2=0;f2<HB_FS.length;f2++){ if(inRect(x,y,HB_FS[f2])){ doFsAct(HB_FS[f2].act); return; } }
     var c3; for(c3=0;c3<HB_CTRL.length;c3++){ if(inRect(x,y,HB_CTRL[c3])){ doCtrl(HB_CTRL[c3].act); return; } }
     return;
