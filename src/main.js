@@ -34,8 +34,13 @@ var COL = {
 var M = { pad:8, gap:8, navW:230, queueW:400, barH:80, navTopH:104, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
-/* ------------------------- fonts (create once) ------------------------- */
-function F(sz,bold){ return gdi.Font('Segoe UI', sz, bold?1:0); }
+/* ------------------------- fonts (create once) -------------------------
+   UISCALE enlarges every font for high-DPI / large screens (2K 21" etc.).
+   Raise it (e.g. 1.4) if still small; lower toward 1.0 for a compact look.
+   Regular (non-bold) text uses 'Segoe UI Semibold' so it doesn't read thin. */
+var UISCALE = 1.25;
+function gf(name,sz,style){ return gdi.Font(name, Math.max(1,Math.round(sz*UISCALE)), style||0); }
+function F(sz,bold){ return gf(bold?'Segoe UI':'Segoe UI Semibold', sz, bold?1:0); }
 var FONT = {
   nav:F(15,1), lib:F(15,1), pl:F(13,1), plSub:F(11,0),
   eyebrow:F(11,1), title:F(52,1), meta:F(13,0),
@@ -43,12 +48,12 @@ var FONT = {
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
   npTitle:F(13,0), npArtist:F(11,0), time:F(11,0), prefs:F(11,0), glyph:F(15,0)
 };
-FONT.icon = gdi.Font('Segoe MDL2 Assets', 12, 0);
-FONT.iconBtn = gdi.Font('Segoe MDL2 Assets', 14, 0);
-FONT.card = gdi.Font('Segoe UI', 14, 1);
-FONT.sect2 = gdi.Font('Segoe UI', 22, 1);
-FONT.lyric = gdi.Font('Segoe UI', 18, 1);
-FONT.lyricCur = gdi.Font('Segoe UI', 23, 1);
+FONT.icon = gf('Segoe MDL2 Assets',12);
+FONT.iconBtn = gf('Segoe MDL2 Assets',14);
+FONT.card = gf('Segoe UI',14,1);
+FONT.sect2 = gf('Segoe UI',22,1);
+FONT.lyric = gf('Segoe UI',18,1);
+FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 GLYPH.search=String.fromCharCode(0xE721);
