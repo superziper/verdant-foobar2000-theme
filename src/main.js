@@ -534,7 +534,7 @@ function drawNav(gr){
     drawPlCover(gr,cx,cy,cs,4,i2,nm);
     var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
     tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
-    tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
+    tL(gr,plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i2});
   }
   // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
@@ -631,7 +631,7 @@ function drawPlaylistCard(gr,x,y,w,i){
   var cs=w-24;
   drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
-  tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
+  tL(gr,plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a){
