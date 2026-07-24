@@ -60,7 +60,7 @@ FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F);
-FONT.navIco = gf('Segoe MDL2 Assets',20);
+FONT.navIco = gf('Segoe MDL2 Assets',24);
 var CH_DOT=String.fromCharCode(0xB7), CH_BULL=String.fromCharCode(0x2022);
 GLYPH.clock=String.fromCharCode(0xE823);
 GLYPH.cmin=String.fromCharCode(0xE921); GLYPH.cmax=String.fromCharCode(0xE922); GLYPH.crestore=String.fromCharCode(0xE923); GLYPH.cclose=String.fromCharCode(0xE8BB);
@@ -450,17 +450,18 @@ function drawNav(gr){
   HB_PL=[];
   // top card
   panelBg(gr,R.navTop,COL.base);
-  // Home + Search as two icon buttons, side by side
-  var isz=46, iy=R.navTop.y+Math.round((R.navTop.h-isz)/2);
-  var hx=R.navTop.x+18, sx2=hx+isz+14;
-  var hon=(view==='home'), hhov=hv(hx,iy,hx+isz,iy+isz);
-  if(hon||hhov) gr.FillRoundRect(hx,iy,isz,isz,8,8,hon?COL.rowActive:COL.rowHover);
-  tC(gr,GLYPH.home,FONT.navIco,hon?COL.text:COL.text2,hx,iy,isz,isz);
-  HB_HOME={x0:hx,y0:iy,x1:hx+isz,y1:iy+isz};
-  var son=(view==='search'), shov=hv(sx2,iy,sx2+isz,iy+isz);
-  if(son||shov) gr.FillRoundRect(sx2,iy,isz,isz,8,8,son?COL.rowActive:COL.rowHover);
-  tC(gr,GLYPH.search,FONT.navIco,son?COL.text:COL.text2,sx2,iy,isz,isz);
-  HB_SEARCH={x0:sx2,y0:iy,x1:sx2+isz,y1:iy+isz};
+  // Home + Search as two wide icon buttons spanning the sidebar, side by side
+  var m=16, g=12, bh=54, iy=R.navTop.y+Math.round((R.navTop.h-bh)/2);
+  var bw=Math.floor((R.navTop.w-2*m-g)/2);
+  var hx=R.navTop.x+m, sx2=hx+bw+g;
+  var hon=(view==='home'), hhov=hv(hx,iy,hx+bw,iy+bh);
+  if(hon||hhov) gr.FillRoundRect(hx,iy,bw,bh,10,10,hon?COL.rowActive:COL.rowHover);
+  tC(gr,GLYPH.home,FONT.navIco,hon?COL.text:COL.text2,hx,iy,bw,bh);
+  HB_HOME={x0:hx,y0:iy,x1:hx+bw,y1:iy+bh};
+  var son=(view==='search'), shov=hv(sx2,iy,sx2+bw,iy+bh);
+  if(son||shov) gr.FillRoundRect(sx2,iy,bw,bh,10,10,son?COL.rowActive:COL.rowHover);
+  tC(gr,GLYPH.search,FONT.navIco,son?COL.text:COL.text2,sx2,iy,bw,bh);
+  HB_SEARCH={x0:sx2,y0:iy,x1:sx2+bw,y1:iy+bh};
   // library card
   panelBg(gr,R.navLib,COL.base);
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
