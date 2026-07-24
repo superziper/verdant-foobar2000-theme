@@ -53,6 +53,8 @@ FONT.icon = gf('Segoe MDL2 Assets',15);
 FONT.iconBtn = gf('Segoe MDL2 Assets',18);
 FONT.card = gf('Segoe UI',14,1);
 FONT.sect2 = gf('Segoe UI',22,1);
+FONT.searchTxt = gf('Segoe UI Semibold',16,0);
+FONT.searchIco = gf('Segoe MDL2 Assets',15);
 FONT.lyric = gf('Segoe UI',18,1);
 FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
@@ -633,25 +635,32 @@ function drawArtist(gr,r){
 }
 // The search field, factored out so the blinking caret can repaint just this
 // strip (paintDirty='searchbox') instead of the whole view twice a second.
-function searchBoxRect(){ var r=R.main, boxW=Math.min(520,r.w-M.cpad*2); return {x:r.x+M.cpad-2,y:r.y+22,w:boxW+8,h:52}; }
+var SBOX_H=44, SBOX_TOP=26;   // box height + offset below R.main.y (shared by box + results layout)
+function searchBoxRect(){ var r=R.main, boxW=Math.min(520,r.w-M.cpad*2); return {x:r.x+M.cpad-2,y:r.y+SBOX_TOP-4,w:boxW+8,h:SBOX_H+8}; }
 function drawSearchBox(gr,r){
-  var x0=r.x+M.cpad, boxH=48, boxY=r.y+24, boxW=Math.min(520,r.w-M.cpad*2), tx=x0+48;
-  gr.FillSolidRect(x0-2,boxY-2,boxW+8,boxH+4,COL.base);   // clean bg for partial repaints
-  gr.FillRoundRect(x0,boxY,boxW,boxH,24,24,RGB(42,42,42));
-  tC(gr,GLYPH.search,FONT.iconBtn,COL.text2,x0+8,boxY,40,boxH);
-  var empty=!searchQuery.length, caretX;
-  if(empty){ tL(gr,'What do you want to play?',FONT.sect2,COL.text3,tx+12,boxY,boxW-60,boxH); caretX=tx; }
-  else { tL(gr,searchQuery,FONT.sect2,COL.text,tx,boxY,boxW-60,boxH); caretX=tx+gr.CalcTextWidth(searchQuery,FONT.sect2)+2; }
-  if(caretOn) gr.FillSolidRect(caretX,boxY+12,2,boxH-24,COL.text);
+  var x0=r.x+M.cpad, boxH=SBOX_H, boxY=r.y+SBOX_TOP, boxW=Math.min(520,r.w-M.cpad*2);
+  gr.FillSolidRect(x0-2,boxY-4,boxW+8,boxH+8,COL.base);   // clean bg for partial repaints
+  gr.FillRoundRect(x0,boxY,boxW,boxH,boxH/2,boxH/2,RGB(42,42,42));
+  var txtX=x0+48, txtW=boxW-(txtX-x0)-18;
+  tC(gr,GLYPH.search,FONT.searchIco,COL.text2,x0+16,boxY,22,boxH);
+  var empty=!searchQuery.length, caretH=20, caretY=boxY+(boxH-caretH)/2, caretX;
+  if(empty){
+    caretX=txtX;
+    tL(gr,'What do you want to play?',FONT.searchTxt,COL.text3,txtX+12,boxY,txtW-12,boxH);
+  } else {
+    tL(gr,searchQuery,FONT.searchTxt,COL.text,txtX,boxY,txtW,boxH);
+    caretX=txtX+Math.min(txtW,gr.CalcTextWidth(searchQuery,FONT.searchTxt))+2;
+  }
+  if(caretOn) gr.FillSolidRect(caretX,caretY,2,caretH,empty?COL.text2:COL.text);
 }
 function drawSearch(gr,r){
   HB_CARD=[]; HB_TR=[];
   computeSearch();
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
-  var boxH=48, boxY=r.y+24;
+  var boxH=SBOX_H, boxY=r.y+SBOX_TOP;
   drawSearchBox(gr,r);
   var empty=!searchQuery.length;
-  if(empty){ tC(gr,'Search your playlists and library',FONT.qArtist,COL.text3,r.x,boxY+boxH+30,r.w,18); return; }
+  if(empty){ tL(gr,'Search your playlists and library.',FONT.qArtist,COL.text3,x0+2,boxY+boxH+18,w,18); return; }
   var y=boxY+boxH+26, any=false;
   if(searchArts.length){
     any=true;
