@@ -337,7 +337,7 @@ var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
 // playlist edit: right-click / hover-dots context menu, inline rename, delete confirm
-var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null;
+var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null, RENAME_HB=null;
 function openPlaylistMenu(pl,x,y){
   ctxMenu={pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y,
            items:[{label:'Rename',act:'rename'},{label:'Delete',act:'delete'}]};
@@ -352,13 +352,6 @@ function doDeletePlaylist(pl){
   confirmDel=null; invalidateItems();
   if(wasShown || plman.PlaylistCount===0) view='home';   // don't strand the playlist view on a deleted list
   repaintAll();
-}
-// inline rename field: highlighted background + text + blinking caret
-function drawEditField(gr,text,font,x,y,w,h){
-  gr.FillRoundRect(x-4,y,w,h,4,4,RGB(62,62,62));
-  var tw=gr.CalcTextWidth(text,font);
-  tL(gr,text,font,COL.text,x,y,w-14,h);
-  if(caretOn){ var cxp=x+Math.min(w-16,tw)+2; gr.FillSolidRect(cxp,y+Math.round((h-16)/2),2,16,COL.text); }
 }
 // small hover "..." button; records a HB_DOTS target that opens the menu just below it
 function drawDots(gr,cx,cy,pl){
@@ -486,7 +479,27 @@ function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c);
 
 // Themed context menu + delete-confirm overlay, painted on top of everything.
 function drawOverlays(gr){
-  CTX_HB=[]; CONF_HB=null;
+  CTX_HB=[]; CONF_HB=null; RENAME_HB=null;
+  if(renameEdit){
+    gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));            // dim backdrop (modal)
+    var rw=Math.min(420,W-40), rhh=196, rx0=Math.round((W-rw)/2), ry0=Math.round((H-rhh)/2);
+    gr.FillSolidRect(rx0+4,ry0+6,rw,rhh,RGBA(0,0,0,140));
+    gr.FillRoundRect(rx0,ry0,rw,rhh,12,12,RGB(42,42,42));
+    tL(gr,'Rename playlist',FONT.sect,COL.text,rx0+28,ry0+22,rw-56,26);
+    var ix=rx0+28, iyf=ry0+64, iw=rw-56, ih=46;
+    gr.FillRoundRect(ix,iyf,iw,ih,6,6,RGB(62,62,62));
+    var tw3=gr.CalcTextWidth(renameEdit.text,FONT.pl);
+    tL(gr,renameEdit.text,FONT.pl,COL.text,ix+14,iyf,iw-28,ih);
+    if(caretOn){ var cxr=ix+14+Math.min(iw-30,tw3)+2; gr.FillSolidRect(cxr,iyf+Math.round((ih-20)/2),2,20,COL.text); }
+    var canSave=renameEdit.text.replace(/^\s+|\s+$/g,'').length>0;
+    var bw=118, bh=40, gap=14, by=ry0+rhh-bh-22, dx=rx0+rw-28-bw, ccx=dx-gap-bw;
+    gr.FillRoundRect(ccx,by,bw,bh,20,20,hv(ccx,by,ccx+bw,by+bh)?RGB(66,66,66):RGB(52,52,52));
+    tC(gr,'Cancel',FONT.pl,COL.text,ccx,by,bw,bh);
+    var sv=canSave?(hv(dx,by,dx+bw,by+bh)?RGB(45,215,110):COL.green):RGB(60,92,74);
+    gr.FillRoundRect(dx,by,bw,bh,20,20,sv);
+    tC(gr,'Save',FONT.pl,canSave?COL.black:COL.text3,dx,by,bw,bh);
+    RENAME_HB={panel:{x0:rx0,y0:ry0,x1:rx0+rw,y1:ry0+rhh},save:{x0:dx,y0:by,x1:dx+bw,y1:by+bh},cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},canSave:canSave};
+  }
   if(ctxMenu){
     var iw=190, ih=42, pad=6, h=ctxMenu.items.length*ih+pad*2;
     var mx=Math.min(ctxMenu.x,W-iw-10), my=Math.min(ctxMenu.y,H-h-10);
@@ -600,13 +613,9 @@ function drawNav(gr){
     drawPlCover(gr,cx,cy,cs,4,i2,nm);
     var tx=cx+cs+12, rowHov=hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh);
     var tw=R.navLib.x+R.navLib.w-16-tx-(rowHov?26:0);
-    if(renameEdit && renameEdit.pl===i2){
-      drawEditField(gr,renameEdit.text,FONT.pl,tx,ry+6,tw,24);
-    } else {
-      tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
-    }
+    tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
     tL(gr,plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
-    if(rowHov && !(renameEdit && renameEdit.pl===i2)) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
+    if(rowHov) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i2});
   }
   // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
@@ -703,13 +712,9 @@ function drawPlaylistCard(gr,x,y,w,i){
   gr.FillRoundRect(x,y,w,w+56,8,8,cardHov?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
-  if(renameEdit && renameEdit.pl===i){
-    drawEditField(gr,renameEdit.text,FONT.card,x+14,y+cs+16,w-28,24);
-  } else {
-    tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24-(cardHov?26:0),20);
-  }
+  tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24-(cardHov?26:0),20);
   tL(gr,plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
-  if(cardHov && !(renameEdit && renameEdit.pl===i)) drawDots(gr,x+w-32,y+cs+16,i);
+  if(cardHov) drawDots(gr,x+w-32,y+cs+16,i);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a){
@@ -973,7 +978,7 @@ function drawBar(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -1044,7 +1049,14 @@ function on_mouse_lbtn_up(x,y){
     } }
     ctxMenu=null; repaintAll(); return;      // click outside menu -> close
   }
-  if(renameEdit){ commitRename(); return; }   // clicking anywhere while editing commits the rename
+  if(renameEdit){
+    if(RENAME_HB){
+      if(inRect(x,y,RENAME_HB.save)){ if(RENAME_HB.canSave) commitRename(); return; }
+      if(inRect(x,y,RENAME_HB.cancel)){ cancelRename(); return; }
+      if(inRect(x,y,RENAME_HB.panel)) return;     // click inside the dialog: keep it open
+    }
+    cancelRename(); return;                        // click on backdrop: dismiss
+  }
   var dd; for(dd=0;dd<HB_DOTS.length;dd++){ if(inRect(x,y,HB_DOTS[dd])){ openPlaylistMenu(HB_DOTS[dd].pl,HB_DOTS[dd].mx,HB_DOTS[dd].my); return; } }
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; repaintAll(); return; }
   if(drag==='vol'){ drag=null; return; }
@@ -1072,6 +1084,7 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
+  if(renameEdit){ if(RENAME_HB){ if(inRect(x,y,RENAME_HB.save)) return 'rns'; if(inRect(x,y,RENAME_HB.cancel)) return 'rnc'; } return 'rn'; }
   if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
   if(ctxMenu){ for(i=0;i<CTX_HB.length;i++) if(inRect(x,y,CTX_HB[i])) return 'cx'+i; return 'cx'; }
   for(i=0;i<HB_DOTS.length;i++) if(inRect(x,y,HB_DOTS[i])) return 'd'+i;
