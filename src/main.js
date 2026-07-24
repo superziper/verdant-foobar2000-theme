@@ -48,8 +48,8 @@ var FONT = {
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
   npTitle:F(13,0), npArtist:F(11,0), time:F(11,0), prefs:F(11,0), glyph:F(15,0)
 };
-FONT.icon = gf('Segoe MDL2 Assets',12);
-FONT.iconBtn = gf('Segoe MDL2 Assets',14);
+FONT.icon = gf('Segoe MDL2 Assets',15);
+FONT.iconBtn = gf('Segoe MDL2 Assets',18);
 FONT.card = gf('Segoe UI',14,1);
 FONT.sect2 = gf('Segoe UI',22,1);
 FONT.lyric = gf('Segoe UI',18,1);
@@ -567,8 +567,8 @@ function drawQueue(gr){
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
 
 function ctrlBtn(gr,glyph,cx,cyc,active,act){
-  tC(gr,glyph,FONT.iconBtn,active?COL.green:(hv(cx-16,cyc-16,cx+16,cyc+16)?COL.text:COL.text2),cx-14,cyc-14,28,28);
-  HB_CTRL.push({x0:cx-16,y0:cyc-16,x1:cx+16,y1:cyc+16,act:act});
+  tC(gr,glyph,FONT.iconBtn,active?COL.green:(hv(cx-18,cyc-18,cx+18,cyc+18)?COL.text:COL.text2),cx-18,cyc-18,36,36);
+  HB_CTRL.push({x0:cx-18,y0:cyc-18,x1:cx+18,y1:cyc+18,act:act});
 }
 function drawBar(gr){
   HB_CTRL=[];
@@ -583,7 +583,7 @@ function drawBar(gr){
   tL(gr,npArtistStr,FONT.npArtist,COL.text2,tx,by+42,220,16);
   // center: transport row + seekbar
   var cxC=Math.round(W/2);
-  var pcy=by+25, phv=hv(cxC-20,by+6,cxC+20,by+44), pb=phv?38:34, pbx=cxC-pb/2, pby=pcy-pb/2;
+  var pcy=by+25, phv=hv(cxC-22,by+4,cxC+22,by+46), pb=phv?42:38, pbx=cxC-pb/2, pby=pcy-pb/2;
   var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
   ctrlBtn(gr,GLYPH.shuffle,cxC-92,pcy,shufOn,'shuffle');
   ctrlBtn(gr,GLYPH.prev,cxC-50,pcy,false,'prev');
