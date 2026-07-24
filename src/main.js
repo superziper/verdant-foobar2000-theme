@@ -329,6 +329,23 @@ function applyKeyMode(){ try{ window.DlgCode=(view==='search')?DLGC_WANTALLKEYS:
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
 var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
+// Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
+var plScroll=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
+function drawScrollbarH(gr,sx,top,w,idx,maxIdx,vis,total){
+  if(total<=vis || w<=6){ SBH=null; return; }
+  var sh=5;
+  gr.FillSolidRect(sx,top,w,sh,RGBA(255,255,255,20));
+  var thumbW=Math.max(40,Math.round(w*vis/total)); if(thumbW>w) thumbW=w;
+  var tx=sx+(maxIdx>0?Math.round((w-thumbW)*idx/maxIdx):0);
+  var on=(drag==='scrollh')||hv(sx,top-6,sx+w,top+sh+6);
+  gr.FillSolidRect(tx,top,thumbW,sh,RGBA(255,255,255,on?175:95));
+  SBH={x0:sx,y0:top-6,x1:sx+w,y1:top+sh+6,left:sx,w:w,thumbW:thumbW,maxIdx:maxIdx};
+}
+function setScrollH(x){
+  if(!SBH) return;
+  var frac=clamp01((x-SBH.left-SBH.thumbW/2)/Math.max(1,SBH.w-SBH.thumbW));
+  plScroll=Math.round(frac*SBH.maxIdx); window.Repaint();
+}
 var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
 function getMeta(pi){
@@ -443,7 +460,7 @@ function drawNav(gr){
 }
 
 function drawMain(gr){
-  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null;   // clear stale click targets from the previous view
+  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   applyKeyMode();
   var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
@@ -537,11 +554,24 @@ function drawHome(gr,r){
   cardW=Math.floor((w-gap*(cols-1))/cols);
   var cardH=cardW+56, i;
   var y=r.y+18;
+  // ---- Your Playlists: single horizontal shelf (scroll sideways) ----
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
-  var n=plman.PlaylistCount, d=0;
-  for(i=0;i<n;i++){ if(plman.GetPlaylistName(i)===ROUTE) continue; drawPlaylistCard(gr,x0+(d%cols)*(cardW+gap),y+Math.floor(d/cols)*(cardH+8),cardW,i); d++; }
-  var plRows=Math.max(1,Math.ceil(d/cols));
-  y+=plRows*(cardH+8)+18;
+  var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)!==ROUTE) pls.push(i); }
+  HOME_PLMAX=Math.max(0,pls.length-cols);
+  if(plScroll>HOME_PLMAX) plScroll=HOME_PLMAX; if(plScroll<0) plScroll=0;
+  var shelfY=y, rightEdge=r.x+r.w;
+  for(i=plScroll;i<pls.length;i++){
+    var cx=x0+(i-plScroll)*(cardW+gap); if(cx>=rightEdge) break;   // last card peeks past the fold
+    drawPlaylistCard(gr,cx,shelfY,cardW,pls[i]);
+  }
+  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,cardH+2,COL.black);   // hide right overflow in the gap to the queue
+  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,cardH,0,RGBA(18,18,18,0),COL.base,1.0);
+  if(plScroll>0)          gr.FillGradRect(x0,shelfY,44,cardH,0,COL.base,RGBA(18,18,18,0),1.0);
+  HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+cardH;
+  var sbY=shelfY+cardH+6;
+  drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length);
+  y=shelfY+cardH+(HOME_PLMAX>0?26:16);
+  // ---- Artists in your library: vertical grid (scroll down) ----
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
   var arts=getArtistList();
   var cropY=r.y+r.h, rowStep=cardH+8;
@@ -746,6 +776,7 @@ function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.
 function on_mouse_lbtn_down(x,y){
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
+  if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
   if(SB && inRect(x,y,SB)){ drag='scroll'; setScroll(y); return; }
 }
 function playHandleList(handles,idx){
@@ -794,6 +825,7 @@ function on_mouse_lbtn_up(x,y){
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
   if(drag==='vol'){ drag=null; return; }
   if(drag==='scroll'){ drag=null; window.Repaint(); return; }
+  if(drag==='scrollh'){ drag=null; window.Repaint(); return; }
   if(y<TBH){
     var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
     if(HB_CAP){
@@ -816,6 +848,7 @@ function on_mouse_lbtn_up(x,y){
 function hoverSig(x,y){
   var i;
   if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
+  if(SBH && inRect(x,y,SBH)) return 'sbh';
   if(SB && inRect(x,y,SB)) return 'sb';
   for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
   for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
@@ -831,6 +864,7 @@ function on_mouse_move(x,y){
   if(drag==='seek'){ dragFrac=seekFrac(x); repaintBar(); return; }
   if(drag==='vol'){ applyVol(x); return; }
   if(drag==='scroll'){ setScroll(y); return; }
+  if(drag==='scrollh'){ setScrollH(x); return; }
   var sig=hoverSig(x,y);
   if(sig!==hoverKey){ hoverKey=sig; window.Repaint(); }
 }
@@ -844,7 +878,10 @@ function on_char(code){
 }
 function on_mouse_wheel(step){
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
-  if(view==='home'){ homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }
+  if(view==='home'){
+    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; }
+    else { homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }
+  }
   else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; }
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; }
   else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
