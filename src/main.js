@@ -243,7 +243,27 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
-var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[];
+var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
+// Always-visible, draggable scrollbar. Each scrollable view calls this at the end
+// of its draw; setScroll() maps a drag/click to that view's scroll index.
+function drawScrollbar(gr,sx,top,h,idx,maxIdx,vis,total){
+  if(total<=vis || h<=6){ SB=null; return; }
+  var sw=6;
+  gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,20));
+  var thumbH=Math.max(36,Math.round(h*vis/total)); if(thumbH>h) thumbH=h;
+  var ty=top+(maxIdx>0?Math.round((h-thumbH)*idx/maxIdx):0);
+  var on=(drag==='scroll')||hv(sx-6,top,sx+sw+6,top+h);
+  gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?175:95));
+  SB={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxIdx:maxIdx};
+}
+function setScroll(y){
+  if(!SB) return;
+  var frac=clamp01((y-SB.top-SB.thumbH/2)/Math.max(1,SB.h-SB.thumbH));
+  var idx=Math.round(frac*SB.maxIdx);
+  if(view==='playlist') firstRow=idx;
+  else if(view==='home') homeScroll=idx;
+  window.Repaint();
+}
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
@@ -362,7 +382,7 @@ function drawNav(gr){
 }
 
 function drawMain(gr){
-  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[];   // clear stale click targets from the previous view
+  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null;   // clear stale click targets from the previous view
   var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
@@ -395,17 +415,17 @@ function drawPlaylist(gr,r){
   tR(gr,GLYPH.clock,FONT.icon,COL.text2,rx-durW,listTop,durW,20);
   gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
 
-  var rowsTop=listTop+34, rh=M.rowH;
-  var visible=Math.max(0,Math.floor((bottom-rowsTop)/rh));
-  var maxFirst=Math.max(0,p.count-visible);
+  var rowsTop=listTop+34, rh=M.rowH, cropY=r.y+r.h;
+  var fullVis=Math.max(0,Math.floor((cropY-rowsTop)/rh));
+  var maxFirst=Math.max(0,p.count-fullVis);
   if(firstRow>maxFirst) firstRow=maxFirst;
   if(firstRow<0) firstRow=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
   var items=getItems(p.i), meta=getMeta(p.i);
-  for(var v=0; v<visible; v++){
+  for(var v=0; ; v++){
+    var ry=rowsTop+v*rh; if(ry>=cropY) break;   // draw one partial "peek" row past the fold
     var j=firstRow+v; if(j>=p.count) break;
     var h=items[j]; if(!h){ continue; }
-    var ry=rowsTop+v*rh;
     var isPlaying=playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j;
     var isHover=hv(r.x,ry,r.x+r.w,ry+rh);
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
@@ -426,11 +446,10 @@ function drawPlaylist(gr,r){
     tR(gr,meta.len[j],FONT.rowCell,COL.text2,rx-durW,ry,durW,rh);
     HB_TR.push({x0:lx-8,y0:ry,x1:rx+8,y1:ry+rh,pl:p.i,item:j});
   }
-  // scrollbar hint
-  if(p.count>visible && visible>0){
-    var trackH=bottom-rowsTop, thumbH=Math.max(30,trackH*visible/p.count), thumbY=rowsTop+trackH*firstRow/p.count;
-    gr.FillSolidRect(rx+6,thumbY,4,thumbH,COL.rowActive);
-  }
+  // crop the peek row cleanly at the panel edge, then fade the bottom to hint "more below"
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);
+  if(firstRow<maxFirst) gr.FillGradRect(lx-8,cropY-40,(rx-lx)+16,40,90,RGBA(18,18,18,0),COL.base,1.0);
+  drawScrollbar(gr,rx+8,rowsTop,cropY-rowsTop,firstRow,maxFirst,fullVis,p.count);
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
@@ -463,13 +482,20 @@ function drawHome(gr,r){
   y+=plRows*(cardH+8)+18;
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
   var arts=getArtistList();
-  HOME_MAXROW=Math.max(0,Math.ceil(arts.length/cols)-1);
+  var cropY=r.y+r.h, rowStep=cardH+8;
+  var fullRows=Math.max(1,Math.floor((cropY-y)/rowStep));
+  var totalRows=Math.max(1,Math.ceil(arts.length/cols));
+  HOME_MAXROW=Math.max(0,totalRows-fullRows);
+  if(homeScroll>HOME_MAXROW) homeScroll=HOME_MAXROW;
   var startIdx=homeScroll*cols;
   for(i=startIdx;i<arts.length;i++){
-    var col=(i-startIdx)%cols, row=Math.floor((i-startIdx)/cols), ay=y+row*(cardH+8);
-    if(ay+cardH>bottom) break;
+    var col=(i-startIdx)%cols, row=Math.floor((i-startIdx)/cols), ay=y+row*rowStep;
+    if(ay>=cropY) break;   // draw one partial "peek" row past the fold
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
   }
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);
+  if(homeScroll<HOME_MAXROW) gr.FillGradRect(x0,cropY-40,w,40,90,RGBA(18,18,18,0),COL.base,1.0);
+  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows);
 }
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
@@ -657,6 +683,7 @@ function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.
 function on_mouse_lbtn_down(x,y){
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
+  if(SB && inRect(x,y,SB)){ drag='scroll'; setScroll(y); return; }
 }
 function playHandleList(handles,idx){
   var hl=fb.CreateHandleList();
@@ -703,6 +730,7 @@ function doCtrl(act){
 function on_mouse_lbtn_up(x,y){
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
   if(drag==='vol'){ drag=null; return; }
+  if(drag==='scroll'){ drag=null; window.Repaint(); return; }
   if(y<TBH){
     var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
     if(HB_CAP){
@@ -725,6 +753,7 @@ function on_mouse_lbtn_up(x,y){
 function hoverSig(x,y){
   var i;
   if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
+  if(SB && inRect(x,y,SB)) return 'sb';
   for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
   for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
@@ -738,6 +767,7 @@ function on_mouse_move(x,y){
   mx=x; my=y;
   if(drag==='seek'){ dragFrac=seekFrac(x); repaintBar(); return; }
   if(drag==='vol'){ applyVol(x); return; }
+  if(drag==='scroll'){ setScroll(y); return; }
   var sig=hoverSig(x,y);
   if(sig!==hoverKey){ hoverKey=sig; window.Repaint(); }
 }
