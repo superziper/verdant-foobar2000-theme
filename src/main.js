@@ -59,7 +59,7 @@ FONT.lyric = gf('Segoe UI',18,1);
 FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
-GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F);
+GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F); GLYPH.add=String.fromCharCode(0xE710);
 FONT.navIco = gf('Segoe MDL2 Assets',24);
 var CH_DOT=String.fromCharCode(0xB7), CH_BULL=String.fromCharCode(0x2022);
 GLYPH.clock=String.fromCharCode(0xE823);
@@ -516,7 +516,7 @@ function drawNav(gr){
   var active=plman.ActivePlaylist;
   var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)!==ROUTE) pls.push(i); }
   // pinned "add playlist" footer at the very bottom (always visible)
-  var footH=76, footTop=R.navLib.y+R.navLib.h-footH;
+  var footH=88, footTop=R.navLib.y+R.navLib.h-footH;
   // scrollable playlist list, cropped just above the footer
   var listTop=R.navLib.y+52, rh=58, cropY=footTop-6;
   var fullVis=Math.max(0,Math.floor((cropY-listTop)/rh));
@@ -541,15 +541,16 @@ function drawNav(gr){
   gr.FillSolidRect(R.navLib.x,cropY,R.navLib.w,footTop-cropY,COL.base);
   if(navScroll<NAV_MAX) gr.FillGradRect(R.navLib.x+8,cropY-34,R.navLib.w-16,34,90,RGBA(18,18,18,0),COL.base,1.0);
   drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,cropY-listTop,navScroll,NAV_MAX,fullVis,pls.length);
-  // dashed "drag a file / click to create" box
-  var bx=R.navLib.x+12, bw2=R.navLib.w-24, by=footTop+2, bh2=footH-14;
+  // dashed "drag a file / click to create" box (hint stays this size; whole section is the drop target)
+  var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+6, bh2=footH-18;
   var addHov=navDropHover||hv(bx,by,bx+bw2,by+bh2);
-  var dcol=navDropHover?COL.green:(addHov?COL.text2:COL.text3);
-  if(navDropHover) gr.FillRoundRect(bx,by,bw2,bh2,8,8,RGBA(30,215,96,26));
-  dashRect(gr,bx,by,bw2,bh2,dcol,7,5,2);
-  tC(gr,String.fromCharCode(0xE710),FONT.icon,dcol,bx,by+8,bw2,22);
-  tC(gr,navDropHover?'Drop to import':'New playlist',FONT.plSub,dcol,bx,by+30,bw2,16);
-  tC(gr,'drag a file or click',FONT.time,COL.text3,bx,by+46,bw2,14);
+  var dcol=navDropHover?COL.green:(addHov?COL.text:COL.text2);
+  if(navDropHover) gr.FillRoundRect(bx,by,bw2,bh2,10,10,RGBA(30,215,96,30));
+  dashRect(gr,bx,by,bw2,bh2,dcol,6,5,2);
+  var cy0=by+Math.round((bh2-58)/2);
+  tC(gr,GLYPH.add,FONT.iconBtn,dcol,bx,cy0,bw2,26);
+  tC(gr,navDropHover?'Drop to import':'New playlist',FONT.pl,dcol,bx,cy0+28,bw2,18);
+  if(!navDropHover) tC(gr,'drag a file or click',FONT.plSub,COL.text3,bx,cy0+48,bw2,14);
   HB_ADDPL={x0:bx,y0:by,x1:bx+bw2,y1:by+bh2};
 }
 
@@ -1015,10 +1016,10 @@ function on_mouse_wheel(step){
   else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
   repaintAll();
 }
-/* ---- drag & drop external files onto the dashed "add playlist" box ---- */
-function overAddBox(x,y){ return HB_ADDPL && x>=HB_ADDPL.x0 && x<HB_ADDPL.x1 && y>=HB_ADDPL.y0 && y<HB_ADDPL.y1; }
+/* ---- drag & drop external files anywhere in the library section -> new playlist ---- */
+function overLib(x,y){ return R.navLib && x>=R.navLib.x && x<R.navLib.x+R.navLib.w && y>=R.navLib.y && y<R.navLib.y+R.navLib.h; }
 function dragUpdate(action,x,y){
-  var over=overAddBox(x,y) && !action.IsInternal;   // external files only
+  var over=overLib(x,y) && !action.IsInternal;   // external files, anywhere over the library
   if(over) action.Effect=(action.Effect&1)?1:((action.Effect&4)?4:0);  // prefer copy, else link
   else action.Effect=0;                                                  // deny elsewhere
   if(over!==navDropHover){ navDropHover=over; repaintAll(); }
@@ -1027,7 +1028,7 @@ function on_drag_enter(action,x,y,mask){ dragUpdate(action,x,y); }
 function on_drag_over(action,x,y,mask){ dragUpdate(action,x,y); }
 function on_drag_leave(){ if(navDropHover){ navDropHover=false; repaintAll(); } }
 function on_drag_drop(action,x,y,mask){
-  if(overAddBox(x,y) && !action.IsInternal && (action.Effect&5)){       // 5 = copy|link
+  if(overLib(x,y) && !action.IsInternal && (action.Effect&5)){          // 5 = copy|link
     var np=createNewPlaylist();
     action.Playlist=np; action.Base=0; action.ToSelect=true;            // component drops the files into it
     action.Effect=(action.Effect&1)?1:4;
