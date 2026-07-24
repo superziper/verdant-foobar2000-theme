@@ -334,7 +334,7 @@ function setScroll(y){
   repaintAll();
 }
 var rightTab='queue';
-var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Keyboard capture on only in Search view. Re-asserted every full paint + on_size
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search')?DLGC_WANTALLKEYS:0; }catch(e){} }
