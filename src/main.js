@@ -517,14 +517,14 @@ function drawNav(gr){
   var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)!==ROUTE) pls.push(i); }
   // pinned "add playlist" footer at the very bottom (always visible)
   var footH=94, footTop=R.navLib.y+R.navLib.h-footH;
-  // scrollable playlist list, ending cleanly above the footer (whole rows only)
-  var listTop=R.navLib.y+52, rh=58, cropY=footTop-12;
+  // scrollable playlist list, cropped just above the footer (continuous: partial peek row like the songs list)
+  var listTop=R.navLib.y+52, rh=58, cropY=footTop-6;
   var fullVis=Math.max(0,Math.floor((cropY-listTop)/rh));
   NAV_MAX=Math.max(0,pls.length-fullVis);
   if(navScroll>NAV_MAX) navScroll=NAV_MAX; if(navScroll<0) navScroll=0;
   var v;
   for(v=0; ; v++){
-    var ry=listTop+v*rh; if(ry+rh>cropY) break;    // whole rows only -> never overlaps the footer
+    var ry=listTop+v*rh; if(ry>=cropY) break;    // draw a partial peek row past the fold
     var idx=navScroll+v; if(idx>=pls.length) break;
     var i2=pls[idx], nm=plman.GetPlaylistName(i2);
     var isA=(view==='playlist' && i2===active);
@@ -537,11 +537,12 @@ function drawNav(gr){
     tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i2});
   }
-  // clear the gap below the list, then the always-visible scrollbar
+  // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
   gr.FillSolidRect(R.navLib.x,cropY,R.navLib.w,R.navLib.y+R.navLib.h-cropY,COL.base);
+  if(navScroll<NAV_MAX) gr.FillGradRect(R.navLib.x+8,cropY-30,R.navLib.w-16,30,90,RGBA(18,18,18,0),COL.base,1.0);
   drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,cropY-listTop,navScroll,NAV_MAX,fullVis,pls.length);
   // dashed "drag a file / click to create" box (hint stays this size; whole section is the drop target)
-  var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+7, bh2=footH-16;
+  var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+5, bh2=footH-14;
   var addHov=navDropHover||hv(bx,by,bx+bw2,by+bh2);
   var dcol=navDropHover?COL.green:(addHov?COL.text:COL.text2);
   if(navDropHover) gr.FillRoundRect(bx,by,bw2,bh2,10,10,RGBA(30,215,96,30));
