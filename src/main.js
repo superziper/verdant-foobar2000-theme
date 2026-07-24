@@ -63,7 +63,7 @@ FONT.cap = gf('Segoe MDL2 Assets',10);
 var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
 var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
 FONT.menu = gf('Segoe UI',12);
-var MENUS=[['File','file'],['Edit','edit'],['View','View'],['Playback','playback'],['Library','library'],['Help','help']];
+var MENUS=[['File','file'],['Library','library'],['Help','help']];
 var MENU_END=0, capW=-1, capEnd=-1;
 function applyCaption(){ if(!UIWizard) return; if(capW===W && capEnd===MENU_END) return; capW=W; capEnd=MENU_END; try{ UIWizard.SetCaptionAreaSize(MENU_END,0,Math.max(0,W-CAPBW*3-MENU_END),TBH); }catch(e){} }
 function openMenu(root,x,y){ try{ var mm=fb.CreateMainMenuManager(); mm.Init(root); var m=window.CreatePopupMenu(); mm.BuildMenu(m,1,600); var id=m.TrackPopupMenu(x,y); if(id>0) mm.ExecuteByID(id-1); }catch(e){} }
