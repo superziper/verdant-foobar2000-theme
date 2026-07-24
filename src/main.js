@@ -59,7 +59,7 @@ FONT.lyric = gf('Segoe UI',18,1);
 FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
-GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F); GLYPH.add=String.fromCharCode(0xE710);
+GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F); GLYPH.add=String.fromCharCode(0xE710); GLYPH.more=String.fromCharCode(0xE712);
 FONT.navIco = gf('Segoe MDL2 Assets',24);
 var CH_DOT=String.fromCharCode(0xB7), CH_BULL=String.fromCharCode(0x2022);
 GLYPH.clock=String.fromCharCode(0xE823);
@@ -201,7 +201,11 @@ function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 // Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
 var caretOn=true, caretTimer=null;
-function caretTick(){ if(view!=='search'){ stopCaret(); return; } caretOn=!caretOn; dirtySearch=true; var b=searchBoxRect(); window.RepaintRect(b.x,b.y,b.w,b.h); }
+function caretTick(){
+  if(renameEdit){ caretOn=!caretOn; repaintAll(); return; }              // caret sits in a playlist row/card
+  if(view==='search'){ caretOn=!caretOn; dirtySearch=true; var b=searchBoxRect(); window.RepaintRect(b.x,b.y,b.w,b.h); return; }
+  stopCaret();
+}
 function startCaret(){ if(!caretTimer){ caretOn=true; caretTimer=window.SetInterval(caretTick,530); } }
 function stopCaret(){ if(caretTimer){ window.ClearInterval(caretTimer); caretTimer=null; } caretOn=true; }
 function readFirst(paths){
@@ -332,6 +336,36 @@ function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
+// playlist edit: right-click / hover-dots context menu, inline rename, delete confirm
+var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null;
+function openPlaylistMenu(pl,x,y){
+  ctxMenu={pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y,
+           items:[{label:'Rename',act:'rename'},{label:'Delete',act:'delete'}]};
+  repaintAll();
+}
+function startRename(pl){ renameEdit={pl:pl, text:plman.GetPlaylistName(pl)}; ctxMenu=null; caretOn=true; startCaret(); applyKeyMode(); repaintAll(); }
+function commitRename(){ if(!renameEdit) return; var t=renameEdit.text.replace(/^\s+|\s+$/g,''); if(t) plman.RenamePlaylist(renameEdit.pl,t); renameEdit=null; applyKeyMode(); repaintAll(); }
+function cancelRename(){ renameEdit=null; applyKeyMode(); repaintAll(); }
+function doDeletePlaylist(pl){
+  var wasShown=(view==='playlist' && pl===plman.ActivePlaylist);
+  try{ plman.RemovePlaylist(pl); }catch(e){}
+  confirmDel=null; invalidateItems();
+  if(wasShown || plman.PlaylistCount===0) view='home';   // don't strand the playlist view on a deleted list
+  repaintAll();
+}
+// inline rename field: highlighted background + text + blinking caret
+function drawEditField(gr,text,font,x,y,w,h){
+  gr.FillRoundRect(x-4,y,w,h,4,4,RGB(62,62,62));
+  var tw=gr.CalcTextWidth(text,font);
+  tL(gr,text,font,COL.text,x,y,w-14,h);
+  if(caretOn){ var cxp=x+Math.min(w-16,tw)+2; gr.FillSolidRect(cxp,y+Math.round((h-16)/2),2,16,COL.text); }
+}
+// small hover "..." button; records a HB_DOTS target that opens the menu just below it
+function drawDots(gr,cx,cy,pl){
+  if(hv(cx,cy,cx+24,cy+24)) gr.FillEllipse(cx,cy,24,24,RGBA(255,255,255,26));
+  tC(gr,GLYPH.more,FONT.icon,COL.text,cx,cy,24,24);
+  HB_DOTS.push({x0:cx-2,y0:cy-2,x1:cx+26,y1:cy+26,pl:pl,mx:cx,my:cy+26});
+}
 // dashed rectangle border, drawn as short segments (GDI+ has no native dash)
 function dashRect(gr,x,y,w,h,col,dash,gap,th){
   var st=dash+gap, d;
@@ -377,7 +411,7 @@ var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Keyboard capture on only in Search view. Re-asserted every full paint + on_size
 // because JSplitter can reset window.DlgCode on resize/reload.
-function applyKeyMode(){ try{ window.DlgCode=(view==='search')?DLGC_WANTALLKEYS:0; }catch(e){} }
+function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
 var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
@@ -450,17 +484,49 @@ function repaintBar(){ dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
 /* ------------------------- paint ------------------------- */
 function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
 
+// Themed context menu + delete-confirm overlay, painted on top of everything.
+function drawOverlays(gr){
+  CTX_HB=[]; CONF_HB=null;
+  if(ctxMenu){
+    var iw=190, ih=42, pad=6, h=ctxMenu.items.length*ih+pad*2;
+    var mx=Math.min(ctxMenu.x,W-iw-10), my=Math.min(ctxMenu.y,H-h-10);
+    gr.FillSolidRect(mx+3,my+4,iw,h,RGBA(0,0,0,120));       // soft shadow
+    gr.FillRoundRect(mx,my,iw,h,8,8,RGB(43,43,43));
+    for(var i=0;i<ctxMenu.items.length;i++){
+      var iy=my+pad+i*ih, it=ctxMenu.items[i];
+      if(hv(mx,iy,mx+iw,iy+ih)) gr.FillRoundRect(mx+4,iy,iw-8,ih,5,5,RGBA(255,255,255,20));
+      tL(gr,it.label,FONT.pl,(it.act==='delete')?RGB(240,96,96):COL.text,mx+16,iy,iw-24,ih);
+      CTX_HB.push({x0:mx,y0:iy,x1:mx+iw,y1:iy+ih,act:it.act});
+    }
+  }
+  if(confirmDel){
+    gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));             // dim backdrop (modal)
+    var cw=380, ch=180, cx=Math.round((W-cw)/2), cy=Math.round((H-ch)/2);
+    gr.FillSolidRect(cx+4,cy+6,cw,ch,RGBA(0,0,0,140));
+    gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
+    tL(gr,'Delete playlist?',FONT.sect,COL.text,cx+28,cy+24,cw-56,26);
+    tL(gr,'This removes "'+confirmDel.name+'" from your library.',FONT.pl,COL.text2,cx+28,cy+58,cw-56,40);
+    var bw=118, bh=40, gap=14, by=cy+ch-bh-22, dx=cx+cw-28-bw, ccx=dx-gap-bw;
+    gr.FillRoundRect(ccx,by,bw,bh,20,20,hv(ccx,by,ccx+bw,by+bh)?RGB(66,66,66):RGB(52,52,52));
+    tC(gr,'Cancel',FONT.pl,COL.text,ccx,by,bw,bh);
+    gr.FillRoundRect(dx,by,bw,bh,20,20,hv(dx,by,dx+bw,by+bh)?RGB(240,96,96):RGB(224,72,72));
+    tC(gr,'Delete',FONT.pl,COL.text,dx,by,bw,bh);
+    CONF_HB={cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},del:{x0:dx,y0:by,x1:dx+bw,y1:by+bh}};
+  }
+}
 function on_paint(gr){
   gr.SetSmoothingMode(2);
   var anyPartial=dirtyBar||dirtyQueue||dirtySearch;
   if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
     dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false;
+    HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);
     drawTitleBar(gr);
     drawNav(gr);
     drawMain(gr);
     drawQueue(gr);
     drawBar(gr);
+    drawOverlays(gr);
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
@@ -532,9 +598,15 @@ function drawNav(gr){
     else if(hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh)) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
     var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
     drawPlCover(gr,cx,cy,cs,4,i2,nm);
-    var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
-    tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
+    var tx=cx+cs+12, rowHov=hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh);
+    var tw=R.navLib.x+R.navLib.w-16-tx-(rowHov?26:0);
+    if(renameEdit && renameEdit.pl===i2){
+      drawEditField(gr,renameEdit.text,FONT.pl,tx,ry+6,tw,24);
+    } else {
+      tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
+    }
     tL(gr,plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
+    if(rowHov && !(renameEdit && renameEdit.pl===i2)) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i2});
   }
   // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
@@ -627,11 +699,17 @@ function drawPlaylist(gr,r){
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
-  gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
+  var cardHov=hv(x,y,x+w,y+w+56);
+  gr.FillRoundRect(x,y,w,w+56,8,8,cardHov?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
-  tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
+  if(renameEdit && renameEdit.pl===i){
+    drawEditField(gr,renameEdit.text,FONT.card,x+14,y+cs+16,w-28,24);
+  } else {
+    tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24-(cardHov?26:0),20);
+  }
   tL(gr,plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
+  if(cardHov && !(renameEdit && renameEdit.pl===i)) drawDots(gr,x+w-32,y+cs+16,i);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a){
@@ -895,11 +973,20 @@ function drawBar(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
+  if(ctxMenu||confirmDel) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
   if(SBN && inRect(x,y,SBN)){ drag='scrolln'; setScrollN(y); return; }
   if(SB && inRect(x,y,SB)){ drag='scroll'; setScroll(y); return; }
+}
+function on_mouse_rbtn_up(x,y){
+  if(!(ctxMenu||confirmDel||renameEdit)){
+    var i;
+    for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ openPlaylistMenu(HB_PL[i].i,x,y); break; } }
+    if(!ctxMenu) for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i]) && HB_CARD[i].kind==='pl'){ openPlaylistMenu(HB_CARD[i].id,x,y); break; } }
+  }
+  return true;   // suppress foobar's default right-click menu inside our skin
 }
 function playHandleList(handles,idx){
   var hl=fb.CreateHandleList();
@@ -944,6 +1031,21 @@ function doCtrl(act){
   repaintAll();
 }
 function on_mouse_lbtn_up(x,y){
+  // ---- modal overlays first ----
+  if(confirmDel){
+    if(CONF_HB && inRect(x,y,CONF_HB.del)){ doDeletePlaylist(confirmDel.pl); return; }
+    confirmDel=null; repaintAll(); return;   // cancel / click outside
+  }
+  if(ctxMenu){
+    var ci; for(ci=0;ci<CTX_HB.length;ci++){ if(inRect(x,y,CTX_HB[ci])){
+      var act=CTX_HB[ci].act, pl=ctxMenu.pl, nm=ctxMenu.name;
+      if(act==='rename'){ startRename(pl); } else { confirmDel={pl:pl,name:nm}; ctxMenu=null; repaintAll(); }
+      return;
+    } }
+    ctxMenu=null; repaintAll(); return;      // click outside menu -> close
+  }
+  if(renameEdit){ commitRename(); return; }   // clicking anywhere while editing commits the rename
+  var dd; for(dd=0;dd<HB_DOTS.length;dd++){ if(inRect(x,y,HB_DOTS[dd])){ openPlaylistMenu(HB_DOTS[dd].pl,HB_DOTS[dd].mx,HB_DOTS[dd].my); return; } }
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; repaintAll(); return; }
   if(drag==='vol'){ drag=null; return; }
   if(drag==='scroll'){ drag=null; repaintAll(); return; }
@@ -970,6 +1072,9 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
+  if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
+  if(ctxMenu){ for(i=0;i<CTX_HB.length;i++) if(inRect(x,y,CTX_HB[i])) return 'cx'+i; return 'cx'; }
+  for(i=0;i<HB_DOTS.length;i++) if(inRect(x,y,HB_DOTS[i])) return 'd'+i;
   if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
   if(SBH && inRect(x,y,SBH)) return 'sbh';
   if(SBN && inRect(x,y,SBN)) return 'sbn';
@@ -996,6 +1101,13 @@ function on_mouse_move(x,y){
 }
 function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''){ hoverKey=''; repaintAll(); } }
 function on_char(code){
+  if(renameEdit){
+    if(code===8) renameEdit.text=renameEdit.text.slice(0,-1);
+    else if(code===27){ cancelRename(); return; }              // Esc = cancel
+    else if(code===13){ commitRename(); return; }              // Enter = commit
+    else if(code>=32) renameEdit.text+=String.fromCharCode(code);
+    caretOn=true; repaintAll(); return;
+  }
   if(view!=='search') return;
   if(code===8) searchQuery=searchQuery.slice(0,-1);
   else if(code===27) searchQuery='';
