@@ -465,7 +465,7 @@ function drawNav(gr){
     if(nm===ROUTE) continue;
     var ry=listTop+dispIdx*rh; dispIdx++;
     if(ry+rh>bottom) break;
-    var isA=(i===active);
+    var isA=(view==='playlist' && i===active);
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
     else if(hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh)) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
     var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
