@@ -1109,7 +1109,8 @@ function drawFsLyrics(gr,bot){
 function drawFsViz(gr,bot){
   fsMiniNP(gr);
   var n=VIZ_N, top=170, h=bot-top-20, midY=top+h, gap=6, bw=Math.max(3,Math.floor((W-280-(n-1)*gap)/n)), x0=Math.round((W-(n*bw+(n-1)*gap))/2);
-  for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(3,Math.round(v*h)); gr.FillRoundRect(x0+i*(bw+gap),midY-bh,bw,bh,2,2,blend(COL.green,COL.text,0.15)); }
+  var bcol=blend(COL.green,COL.text,0.15);
+  for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(3,Math.round(v*h)); gr.FillSolidRect(x0+i*(bw+gap),midY-bh,bw,bh,bcol); }
 }
 function drawFsBar(gr){
   var playing=fb.IsPlaying&&!fb.IsPaused, by=H-150;
