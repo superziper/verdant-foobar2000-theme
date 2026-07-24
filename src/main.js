@@ -178,12 +178,12 @@ function currentLyricLine(){
   for(var i=0;i<lyrics.lines.length;i++){ if(lyrics.lines[i].t<=pt) c=i; else break; }
   return c;
 }
-function lyTick(){ var d=lyCur-lyPos; if(Math.abs(d)<0.01){ lyPos=lyCur; stopLyAnim(); } else lyPos+=d*0.25; paintDirty='queue'; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+function lyTick(){ var d=lyCur-lyPos; if(Math.abs(d)<0.01){ lyPos=lyCur; stopLyAnim(); } else lyPos+=d*0.25; dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 // Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
 var caretOn=true, caretTimer=null;
-function caretTick(){ if(view!=='search'){ stopCaret(); return; } caretOn=!caretOn; paintDirty='searchbox'; var b=searchBoxRect(); window.RepaintRect(b.x,b.y,b.w,b.h); }
+function caretTick(){ if(view!=='search'){ stopCaret(); return; } caretOn=!caretOn; dirtySearch=true; var b=searchBoxRect(); window.RepaintRect(b.x,b.y,b.w,b.h); }
 function startCaret(){ if(!caretTimer){ caretOn=true; caretTimer=window.SetInterval(caretTick,530); } }
 function stopCaret(){ if(caretTimer){ window.ClearInterval(caretTimer); caretTimer=null; } caretOn=true; }
 function readFirst(paths){
@@ -303,7 +303,12 @@ function drawPlCover(gr,x,y,size,rad,pi,seed){
 }
 
 /* ------------------------- state ------------------------- */
-var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='', paintDirty='all';
+var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='';
+// Repaint scope flags. dirtyAll (sticky) forces a full paint; the partial flags
+// accumulate. A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint
+// serviced while a partial flag is pending can't blank the rest of the window.
+var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
+function repaintAll(){ dirtyAll=true; window.Repaint(); }
 var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
@@ -326,7 +331,7 @@ function setScroll(y){
   var idx=Math.round(frac*SB.maxIdx);
   if(view==='playlist') firstRow=idx;
   else if(view==='home') homeScroll=idx;
-  window.Repaint();
+  repaintAll();
 }
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
@@ -351,7 +356,7 @@ function drawScrollbarH(gr,sx,top,w,idx,maxIdx,vis,total){
 function setScrollH(x){
   if(!SBH) return;
   var frac=clamp01((x-SBH.left-SBH.thumbW/2)/Math.max(1,SBH.w-SBH.thumbW));
-  plScroll=Math.round(frac*SBH.maxIdx); window.Repaint();
+  plScroll=Math.round(frac*SBH.maxIdx); repaintAll();
 }
 var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
@@ -391,23 +396,28 @@ function updateNP(){
   npTitleStr=m?TF.npTitle.EvalWithMetadb(m):'';
   npArtistStr=m?TF.npArtist.EvalWithMetadb(m):'';
 }
-function repaintBar(){ paintDirty='bar'; window.RepaintRect(0,R.barY,W,M.barH); }
+function repaintBar(){ dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
 
 /* ------------------------- paint ------------------------- */
 function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
 
 function on_paint(gr){
-  var d=paintDirty; paintDirty='all';
   gr.SetSmoothingMode(2);
-  if(d==='bar'){ drawBar(gr); return; }
-  if(d==='queue'){ drawQueue(gr); return; }
-  if(d==='searchbox'){ if(view==='search') drawSearchBox(gr,R.main); return; }
-  gr.FillSolidRect(0,0,W,H,COL.black);
-  drawTitleBar(gr);
-  drawNav(gr);
-  drawMain(gr);
-  drawQueue(gr);
-  drawBar(gr);
+  var anyPartial=dirtyBar||dirtyQueue||dirtySearch;
+  if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
+    dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false;
+    gr.FillSolidRect(0,0,W,H,COL.black);
+    drawTitleBar(gr);
+    drawNav(gr);
+    drawMain(gr);
+    drawQueue(gr);
+    drawBar(gr);
+    return;
+  }
+  // partial composite: only the regions actually flagged (each drawn over live content)
+  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
+  if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
+  if(dirtyBar){ dirtyBar=false; drawBar(gr); }
 }
 
 function winMaxed(){ if(!UIWizard) return false; try{ return UIWizard.WindowState===1; }catch(e){ return false; } }
@@ -634,7 +644,7 @@ function drawArtist(gr,r){
   }
 }
 // The search field, factored out so the blinking caret can repaint just this
-// strip (paintDirty='searchbox') instead of the whole view twice a second.
+// strip (dirtySearch flag) instead of the whole view twice a second.
 var SBOX_H=44, SBOX_TOP=26;   // box height + offset below R.main.y (shared by box + results layout)
 function searchBoxRect(){ var r=R.main, boxW=Math.min(520,r.w-M.cpad*2); return {x:r.x+M.cpad-2,y:r.y+SBOX_TOP-4,w:boxW+8,h:SBOX_H+8}; }
 function drawSearchBox(gr,r){
@@ -846,31 +856,31 @@ function doCtrl(act){
   else if(act==='prev') fb.Prev();
   else if(act==='shuffle'){ var o=readOrder(); setOrder(o>=3?0:4); }
   else if(act==='repeat'){ var o=readOrder(); setOrder(o===0?1:(o===1?2:0)); }
-  window.Repaint();
+  repaintAll();
 }
 function on_mouse_lbtn_up(x,y){
-  if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
+  if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; repaintAll(); return; }
   if(drag==='vol'){ drag=null; return; }
-  if(drag==='scroll'){ drag=null; window.Repaint(); return; }
-  if(drag==='scrollh'){ drag=null; window.Repaint(); return; }
+  if(drag==='scroll'){ drag=null; repaintAll(); return; }
+  if(drag==='scrollh'){ drag=null; repaintAll(); return; }
   if(y<TBH){
     var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
     if(HB_CAP){
       if(x>=HB_CAP.closeX){ fb.Exit(); return; }
-      if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } window.Repaint(); return; }
+      if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } repaintAll(); return; }
       if(x>=HB_CAP.minX){ if(UIWizard){ try{ UIWizard.WindowMinimize(); }catch(e){} } return; }
     }
     return;
   }
   var i;
-  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); window.Repaint(); return; } }
+  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); repaintAll(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
-  if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; window.Repaint(); return; }
-  if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; window.Repaint(); return; }
-  for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } window.Repaint(); return; } }
-  for(i=0;i<HB_ARTIST.length;i++){ if(inRect(x,y,HB_ARTIST[i])){ loadArtist(HB_ARTIST[i].name); view='artist'; window.Repaint(); return; } }
-  for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; view='playlist'; window.Repaint(); return; } }
-  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.lib) playArtistTrack(tr.block,tr.idx); else plman.ExecutePlaylistDefaultAction(tr.pl,tr.item); window.Repaint(); return; } }
+  if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; repaintAll(); return; }
+  if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; repaintAll(); return; }
+  for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
+  for(i=0;i<HB_ARTIST.length;i++){ if(inRect(x,y,HB_ARTIST[i])){ loadArtist(HB_ARTIST[i].name); view='artist'; repaintAll(); return; } }
+  for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; view='playlist'; repaintAll(); return; } }
+  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.lib) playArtistTrack(tr.block,tr.idx); else plman.ExecutePlaylistDefaultAction(tr.pl,tr.item); repaintAll(); return; } }
 }
 function hoverSig(x,y){
   var i;
@@ -893,15 +903,15 @@ function on_mouse_move(x,y){
   if(drag==='scroll'){ setScroll(y); return; }
   if(drag==='scrollh'){ setScrollH(x); return; }
   var sig=hoverSig(x,y);
-  if(sig!==hoverKey){ hoverKey=sig; window.Repaint(); }
+  if(sig!==hoverKey){ hoverKey=sig; repaintAll(); }
 }
-function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''){ hoverKey=''; window.Repaint(); } }
+function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''){ hoverKey=''; repaintAll(); } }
 function on_char(code){
   if(view!=='search') return;
   if(code===8) searchQuery=searchQuery.slice(0,-1);
   else if(code===27) searchQuery='';
   else if(code>=32) searchQuery+=String.fromCharCode(code);
-  searchScroll=0; caretOn=true; window.Repaint();   // keep caret solid right after a keystroke
+  searchScroll=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
 }
 function on_mouse_wheel(step){
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
@@ -912,32 +922,32 @@ function on_mouse_wheel(step){
   else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; }
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; }
   else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
-  window.Repaint();
+  repaintAll();
 }
 function on_script_unload(){ stopLyAnim(); stopCaret(); }
-function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
-function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
-function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
+function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
+function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
+function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
 
 /* ------------------------- playback callbacks ------------------------- */
-function on_playback_new_track(){ updateNP(); window.Repaint(); }
-function on_playback_dynamic_info_track(){ updateNP(); window.Repaint(); }
-function on_playback_stop(){ updateNP(); window.Repaint(); }
-function on_playback_pause(){ updateNP(); window.Repaint(); }
+function on_playback_new_track(){ updateNP(); repaintAll(); }
+function on_playback_dynamic_info_track(){ updateNP(); repaintAll(); }
+function on_playback_stop(){ updateNP(); repaintAll(); }
+function on_playback_pause(){ updateNP(); repaintAll(); }
 function on_playback_time(){
   repaintBar();
   if(rightTab==='lyrics' && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
 }
-function on_playback_seek(){ window.Repaint(); }
+function on_playback_seek(){ repaintAll(); }
 function on_playback_order_changed(){ repaintBar(); }
 function on_volume_change(){ repaintBar(); }
-function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; updateNP(); window.Repaint(); }
-function on_playlist_switch(){ firstRow=0; invalidateItems(); window.Repaint(); }
-function on_playlists_changed(){ invalidateItems(); window.Repaint(); }
-function on_playlist_items_added(){ invalidateItems(); window.Repaint(); }
-function on_playlist_items_removed(){ invalidateItems(); window.Repaint(); }
-function on_playlist_items_reordered(){ invalidateItems(); window.Repaint(); }
-function on_item_focus_change(){ window.Repaint(); }
+function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; updateNP(); repaintAll(); }
+function on_playlist_switch(){ firstRow=0; invalidateItems(); repaintAll(); }
+function on_playlists_changed(){ invalidateItems(); repaintAll(); }
+function on_playlist_items_added(){ invalidateItems(); repaintAll(); }
+function on_playlist_items_removed(){ invalidateItems(); repaintAll(); }
+function on_playlist_items_reordered(){ invalidateItems(); repaintAll(); }
+function on_item_focus_change(){ repaintAll(); }
 
 layout();
 updateNP();
