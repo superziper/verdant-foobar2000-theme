@@ -93,6 +93,37 @@ function tL(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_L); }
 function tR(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_R); }
 function tC(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C); }
 
+/* ------------------------- vector icons (SVG rasterized via gdi.LoadSVG, tinted + cached) ------------------------- */
+var ICONS={
+ play:"<path d='M8 5v14l11-7z'/>",
+ pause:"<rect x='6' y='5' width='4' height='14' rx='1.3'/><rect x='14' y='5' width='4' height='14' rx='1.3'/>",
+ prev:"<path d='M6 6h2.2v12H6zm3 6l9 6V6z'/>",
+ next:"<path d='M15.8 6H18v12h-2.2zM6 18l9-6-9-6z'/>",
+ shuffle:"<path d='M10.59 9.17 5.41 4 4 5.41l5.17 5.17zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04z'/>",
+ repeat:"<path d='M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z'/>",
+ repeat1:"<path d='M13 15V9h-1l-2 1v1h1.5v4zm4-8v3l4-4-4-4v3H5v6h2V7zm0 10H7v-3l-4 4 4 4v-3h12v-6h-2z'/>",
+ volume:"<path d='M3 9v6h4l5 5V4L7 9zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z'/>",
+ home:"<path d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z'/>",
+ search:"<path d='M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.49 4.49 0 0 1 9.5 14z'/>",
+ add:"<path d='M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z'/>",
+ more:"<path d='M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'/>",
+ clock:"<path d='M11.99 2A10 10 0 1 0 22 12 10 10 0 0 0 11.99 2zM12 20a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z'/>"
+};
+var svgCache={};
+function iconImg(name,size,col){
+  var rgb=((col>>16)&0xff)+','+((col>>8)&0xff)+','+(col&0xff), key=name+'|'+size+'|'+rgb;
+  if(svgCache.hasOwnProperty(key)) return svgCache[key];
+  var xml="<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='"+size+"' height='"+size+"'><g fill='rgb("+rgb+")'>"+ICONS[name]+"</g></svg>";
+  var bmp=null; try{ bmp=gdi.LoadSVG(xml,size); }catch(e){ bmp=null; }
+  svgCache[key]=bmp; return bmp;
+}
+// draw a crisp size-px vector icon centred in [x,y,w,h]; falls back to the MDL2 glyph if LoadSVG is unavailable
+function drawIcon(gr,name,col,x,y,w,h,size){
+  var s=size||Math.min(w,h), img=iconImg(name,s,col);
+  if(img){ var a=(col>>>24)&0xff; if(!a) a=255; gr.DrawImage(img,Math.round(x+(w-s)/2),Math.round(y+(h-s)/2),s,s,0,0,img.Width,img.Height,0,a); return; }
+  tC(gr,GLYPH[name]||'?',(s>=26?FONT.navIco:(s>=18?FONT.iconBtn:FONT.icon)),col,x,y,w,h);
+}
+
 /* ------------------------- helpers ------------------------- */
 function hash(s){ s=String(s); var h=2166136261; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h*16777619)>>>0; } return h>>>0; }
 function coverCol(seed){ return PALETTE[hash(seed)%PALETTE.length]; }
@@ -356,7 +387,7 @@ function doDeletePlaylist(pl){
 // small hover "..." button; records a HB_DOTS target that opens the menu just below it
 function drawDots(gr,cx,cy,pl){
   if(hv(cx,cy,cx+24,cy+24)) gr.FillEllipse(cx,cy,24,24,RGBA(255,255,255,26));
-  tC(gr,GLYPH.more,FONT.icon,COL.text,cx,cy,24,24);
+  drawIcon(gr,'more',COL.text,cx,cy,24,24,18);
   HB_DOTS.push({x0:cx-2,y0:cy-2,x1:cx+26,y1:cy+26,pl:pl,mx:cx,my:cy+26});
 }
 // dashed rectangle border, drawn as short segments (GDI+ has no native dash)
@@ -583,11 +614,11 @@ function drawNav(gr){
   var hx=R.navTop.x+m, sx2=hx+bw+g;
   var hon=(view==='home'), hhov=hv(hx,iy,hx+bw,iy+bh);
   if(hon||hhov) gr.FillRoundRect(hx,iy,bw,bh,10,10,hon?COL.rowActive:COL.rowHover);
-  tC(gr,GLYPH.home,FONT.navIco,hon?COL.text:COL.text2,hx,iy,bw,bh);
+  drawIcon(gr,'home',hon?COL.text:COL.text2,hx,iy,bw,bh,26);
   HB_HOME={x0:hx,y0:iy,x1:hx+bw,y1:iy+bh};
   var son=(view==='search'), shov=hv(sx2,iy,sx2+bw,iy+bh);
   if(son||shov) gr.FillRoundRect(sx2,iy,bw,bh,10,10,son?COL.rowActive:COL.rowHover);
-  tC(gr,GLYPH.search,FONT.navIco,son?COL.text:COL.text2,sx2,iy,bw,bh);
+  drawIcon(gr,'search',son?COL.text:COL.text2,sx2,iy,bw,bh,26);
   HB_SEARCH={x0:sx2,y0:iy,x1:sx2+bw,y1:iy+bh};
   // library card
   panelBg(gr,R.navLib,COL.base);
@@ -629,7 +660,7 @@ function drawNav(gr){
   if(navDropHover) gr.FillRoundRect(bx,by,bw2,bh2,10,10,RGBA(30,215,96,30));
   dashRect(gr,bx,by,bw2,bh2,dcol,6,5,2);
   var cy0=by+Math.round((bh2-63)/2);   // vertically-centred content block (icon + 2 lines), padded off the border
-  tC(gr,GLYPH.add,FONT.iconBtn,dcol,bx,cy0,bw2,22);
+  drawIcon(gr,'add',dcol,bx,cy0,bw2,22,22);
   tC(gr,navDropHover?'Drop to import':'New playlist',FONT.pl,dcol,bx,cy0+28,bw2,18);
   if(!navDropHover) tC(gr,'drag a file or click',FONT.plSub,COL.text3,bx,cy0+49,bw2,14);
   HB_ADDPL={x0:bx,y0:by,x1:bx+bw2,y1:by+bh2};
@@ -669,7 +700,7 @@ function drawPlaylist(gr,r){
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
-  tR(gr,GLYPH.clock,FONT.icon,COL.text2,rx-durW,listTop,durW,20);
+  drawIcon(gr,'clock',COL.text2,rx-16,listTop,16,20,15);
   gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
 
   var rowsTop=listTop+34, rh=M.rowH, cropY=r.y+r.h;
@@ -688,7 +719,7 @@ function drawPlaylist(gr,r){
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
     // index / play glyph on hover
-    if(isHover) tC(gr,GLYPH.play,FONT.icon,COL.text,lx,ry,numW,rh);
+    if(isHover) drawIcon(gr,'play',COL.text,lx,ry,numW,rh,14);
     else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
     // cover + title + artist (from batch-cached metadata)
     var cs=40, cy=ry+(rh-cs)/2, alb=meta.album[j];
@@ -811,7 +842,7 @@ function drawSearchBox(gr,r){
   gr.FillSolidRect(x0-2,boxY-4,boxW+8,boxH+8,COL.base);   // clean bg for partial repaints
   gr.FillRoundRect(x0,boxY,boxW,boxH,boxH/2,boxH/2,RGB(42,42,42));
   var txtX=x0+48, txtW=boxW-(txtX-x0)-18;
-  tC(gr,GLYPH.search,FONT.searchIco,COL.text2,x0+16,boxY,22,boxH);
+  drawIcon(gr,'search',COL.text2,x0+16,boxY,22,boxH,18);
   var empty=!searchQuery.length, caretH=20, caretY=boxY+(boxH-caretH)/2, caretX;
   if(empty){
     caretX=txtX;
@@ -931,8 +962,8 @@ function drawQueue(gr){
 }
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
 
-function ctrlBtn(gr,glyph,cx,cyc,active,act){
-  tC(gr,glyph,FONT.iconBtn,active?COL.green:(hv(cx-18,cyc-18,cx+18,cyc+18)?COL.text:COL.text2),cx-18,cyc-18,36,36);
+function ctrlBtn(gr,name,cx,cyc,active,act){
+  drawIcon(gr,name,active?COL.green:(hv(cx-18,cyc-18,cx+18,cyc+18)?COL.text:COL.text2),cx-18,cyc-18,36,36,22);
   HB_CTRL.push({x0:cx-18,y0:cyc-18,x1:cx+18,y1:cyc+18,act:act});
 }
 function drawBar(gr){
@@ -950,13 +981,13 @@ function drawBar(gr){
   var cxC=Math.round(W/2);
   var pcy=by+25, phv=hv(cxC-22,by+4,cxC+22,by+46), pb=phv?42:38, pbx=cxC-pb/2, pby=pcy-pb/2;
   var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
-  ctrlBtn(gr,GLYPH.shuffle,cxC-92,pcy,shufOn,'shuffle');
-  ctrlBtn(gr,GLYPH.prev,cxC-50,pcy,false,'prev');
+  ctrlBtn(gr,'shuffle',cxC-92,pcy,shufOn,'shuffle');
+  ctrlBtn(gr,'prev',cxC-50,pcy,false,'prev');
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
-  tC(gr,playing?GLYPH.pause:GLYPH.play,FONT.iconBtn,COL.black,pbx,pby,pb,pb);
+  drawIcon(gr,playing?'pause':'play',COL.black,pbx,pby,pb,pb,Math.round(pb*0.5));
   HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
-  ctrlBtn(gr,GLYPH.next,cxC+50,pcy,false,'next');
-  ctrlBtn(gr,repMode===2?GLYPH.repeat1:GLYPH.repeat,cxC+92,pcy,repMode>0,'repeat');
+  ctrlBtn(gr,'next',cxC+50,pcy,false,'next');
+  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+92,pcy,repMode>0,'repeat');
   var sbW=Math.min(Math.round(W*0.34),520), sbX=cxC-sbW/2, sbY=by+54;
   var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
   gr.FillSolidRect(sbX,sbY,sbW,4,COL.seekbg);
@@ -967,7 +998,7 @@ function drawBar(gr){
   // right: volume (Preferences now lives in the File/Library menu up top)
   var gearC=by+M.barH/2;
   var volW=92, volX=W-16-volW, volY=gearC-2;
-  tC(gr,GLYPH.volume,FONT.icon,COL.text2,volX-26,gearC-12,20,24);
+  drawIcon(gr,'volume',COL.text2,volX-28,gearC-12,24,24,20);
   var vp=clamp01(vol2pos(fb.Volume));
   gr.FillSolidRect(volX,volY,volW,4,COL.seekbg);
   gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
