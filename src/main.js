@@ -83,6 +83,7 @@ var TF = {
 TF.albkey=fb.TitleFormat('%album artist% - %album%');
 TF.artistName=fb.TitleFormat('%album artist%');
 TF.year=fb.TitleFormat('$year(%date%)');
+TF.lensec=fb.TitleFormat('%length_seconds%');
 
 /* ------------------------- DrawText flags ------------------------- */
 var DT_L = 0x4|0x20|0x800|0x8000;        // left + vcenter + singleline + noprefix + end-ellipsis
@@ -379,11 +380,20 @@ var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
 function getMeta(pi){
   if(!plMetaMap[pi]){
-    var list=getItems(pi);
+    var list=getItems(pi), secs=TF.lensec.EvalWithMetadbs(list), tot=0;
+    for(var i=0;i<secs.length;i++) tot+=parseInt(secs[i],10)||0;
     plMetaMap[pi]={ title:TF.title.EvalWithMetadbs(list), artist:TF.artist.EvalWithMetadbs(list),
-                    album:TF.album.EvalWithMetadbs(list), len:TF.len.EvalWithMetadbs(list), artkey:TF.albkey.EvalWithMetadbs(list) };
+                    album:TF.album.EvalWithMetadbs(list), len:TF.len.EvalWithMetadbs(list), artkey:TF.albkey.EvalWithMetadbs(list),
+                    totalSec:tot };
   }
   return plMetaMap[pi];
+}
+// "1 hr 23 min" / "42 min" / "38 sec" style duration
+function fmtDur(s){
+  s=Math.max(0,Math.round(s)); var h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  if(h>0) return h+' hr '+m+' min';
+  if(m>0) return m+' min';
+  return s+' sec';
 }
 function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; }
 
@@ -521,7 +531,8 @@ function drawPlaylist(gr,r){
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
-  tL(gr,'apip '+CH_DOT+' '+p.count+' songs',FONT.meta,COL.text2,tx,ay+150,tw,22);
+  var meta0=getMeta(p.i);
+  tL(gr,p.count+' songs'+(meta0.totalSec>0?(' '+CH_DOT+' '+fmtDur(meta0.totalSec)):''),FONT.meta,COL.text2,tx,ay+150,tw,22);
 
   // track list
   var lx=r.x+M.cpad, rx=r.x+r.w-M.cpad;
