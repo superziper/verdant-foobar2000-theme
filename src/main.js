@@ -429,7 +429,7 @@ function drawNav(gr){
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
     else if(hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh)) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
     var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
-    drawCover(gr,cx,cy,cs,4,firstHandle(i),nm);
+    drawPlCover(gr,cx,cy,cs,4,i,nm);
     var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
     tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
     tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
