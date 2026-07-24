@@ -172,14 +172,30 @@ function loadArtist(name){
 
 /* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
 var lyricsFor=null, lyrics=null; // lyrics: {lines:[{t,text}],synced} | 'none'
-var lyPos=0, lyCur=0, lyTimer=null;
+// Pixel-based roll (variable line heights, since long phrases wrap to >1 line).
+var lyScroll=0, lyTarget=0, lyCur=0, lyTimer=null, lySnap=true, lyLay={lyr:null,w:-1};
 function currentLyricLine(){
   if(!lyrics || lyrics==='none' || !lyrics.synced) return 0;
   var pt=fb.PlaybackTime, c=0;
   for(var i=0;i<lyrics.lines.length;i++){ if(lyrics.lines[i].t<=pt) c=i; else break; }
   return c;
 }
-function lyTick(){ var d=lyCur-lyPos; if(Math.abs(d)<0.01){ lyPos=lyCur; stopLyAnim(); } else lyPos+=d*0.25; dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+// Wrap each phrase to the panel width and precompute cumulative block geometry. Cached by width.
+function lyLayout(gr,maxW){
+  if(lyLay.lyr===lyrics && lyLay.w===maxW) return lyLay;
+  var subLh=Math.round(gr.CalcTextHeight('Ag',FONT.lyric))+4, gap=Math.round(subLh*0.55);
+  var subs=[], top=[], cen=[], blockH=[], acc=0;
+  for(var i=0;i<lyrics.lines.length;i++){
+    var wr=gr.EstimateLineWrap(lyrics.lines[i].text||'',FONT.lyric,maxW), parts=[];
+    for(var j=0;j<wr.length;j+=2) parts.push(wr[j]);
+    if(!parts.length) parts=[''];
+    var bh=parts.length*subLh;
+    subs.push(parts); top.push(acc); blockH.push(bh); cen.push(acc+bh/2); acc+=bh+gap;
+  }
+  lyLay={lyr:lyrics,w:maxW,subs:subs,top:top,cen:cen,blockH:blockH,subLh:subLh};
+  return lyLay;
+}
+function lyTick(){ var d=lyTarget-lyScroll; if(Math.abs(d)<0.5){ lyScroll=lyTarget; stopLyAnim(); } else lyScroll+=d*0.25; dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 // Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
@@ -208,7 +224,7 @@ function parseLyrics(text){
 function loadLyrics(){
   var key=NP?NP.Path:null;
   if(key===lyricsFor) return;
-  lyricsFor=key; lyrics='none'; lyPos=0;
+  lyricsFor=key; lyrics='none'; lyScroll=0; lyTarget=0; lySnap=true; lyLay={lyr:null,w:-1};
   if(!key) return;
   var base=key.replace(/\.[^.\\\/]+$/,'');
   var text=readFirst([base+'.lrc', base+'.txt']);
@@ -724,23 +740,31 @@ function drawQueue(gr){
       tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
       return;
     }
-    var viewTop=r.y+64, viewBot=r.y+r.h-16, viewMid=Math.round((viewTop+viewBot)/2), lh=36, li;
+    var viewTop=r.y+64, viewBot=r.y+r.h-16, viewMid=Math.round((viewTop+viewBot)/2), maxW=r.w-28, li;
+    var L=lyLayout(gr,maxW), subLh=L.subLh, s;
     if(lyrics.synced){
       lyCur=currentLyricLine();
-      if(Math.abs(lyCur-lyPos)>0.01) startLyAnim();
+      lyTarget=L.cen[lyCur]||0;
+      if(lySnap){ lyScroll=lyTarget; lySnap=false; }
+      else if(Math.abs(lyTarget-lyScroll)>0.5) startLyAnim();
       for(li=0;li<lyrics.lines.length;li++){
-        var yc=viewMid+(li-lyPos)*lh;
-        if(yc<viewTop-lh || yc>viewBot+lh) continue;
+        var bcY=viewMid+(L.cen[li]-lyScroll);                          // this phrase's block centre, on screen
+        if(bcY<viewTop-L.blockH[li] || bcY>viewBot+L.blockH[li]) continue;
         var isCur=(li===lyCur);
-        var dist=Math.abs(yc-viewMid), a=clamp01(1-dist/(viewMid-viewTop));
+        var dist=Math.abs(bcY-viewMid), a=clamp01(1-dist/(viewMid-viewTop));
         var col=isCur?COL.green:RGBA(255,255,255,Math.round(28+112*a));
-        var fnt=isCur?FONT.lyricCur:FONT.lyric, bh=isCur?46:lh;
-        tC(gr,lyrics.lines[li].text,fnt,col,r.x+14,Math.round(yc-bh/2),r.w-28,bh);
+        var parts=L.subs[li], bTop=Math.round(bcY-L.blockH[li]/2);
+        for(s=0;s<parts.length;s++) tC(gr,parts[s],FONT.lyric,col,r.x+14,bTop+s*subLh,maxW,subLh);
       }
     } else {
       stopLyAnim();
       var yy=viewTop+6;
-      for(li=0;li<lyrics.lines.length && yy+lh<=viewBot; li++){ tC(gr,lyrics.lines[li].text,FONT.lyric,COL.text2,r.x+14,yy,r.w-28,lh); yy+=lh; }
+      for(li=0;li<lyrics.lines.length;li++){
+        var p2=L.subs[li];
+        for(s=0;s<p2.length && yy+subLh<=viewBot; s++){ tC(gr,p2[s],FONT.lyric,COL.text2,r.x+14,yy,maxW,subLh); yy+=subLh; }
+        yy+=Math.round(subLh*0.45);
+        if(yy>=viewBot) break;
+      }
     }
     return;
   }
@@ -881,7 +905,7 @@ function on_mouse_lbtn_up(x,y){
     return;
   }
   var i;
-  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); repaintAll(); return; } }
+  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lySnap=true; } else stopLyAnim(); repaintAll(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; repaintAll(); return; }
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; repaintAll(); return; }
