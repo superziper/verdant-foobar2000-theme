@@ -360,6 +360,7 @@ function drawNav(gr){
 }
 
 function drawMain(gr){
+  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[];   // clear stale click targets from the previous view
   var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
