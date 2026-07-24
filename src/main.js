@@ -16,8 +16,9 @@
  * ============================================================= */
 
 window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', options:{ grab_focus:true } });
-var DLGC_WANTCHARS=0x0080;
-window.DlgCode=DLGC_WANTCHARS;
+var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys (incl. as-typed chars) instead of letting
+                               // foobar swallow them as global shortcuts. Applied only in Search
+                               // view (see applyKeyMode) so shortcuts still work everywhere else.
 
 /* ------------------------- colour helpers ------------------------- */
 function RGB(r,g,b){ return (0xff000000|(r<<16)|(g<<8)|b); }
@@ -322,6 +323,9 @@ function setScroll(y){
 }
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+// Keyboard capture on only in Search view. Re-asserted every full paint + on_size
+// because JSplitter can reset window.DlgCode on resize/reload.
+function applyKeyMode(){ try{ window.DlgCode=(view==='search')?DLGC_WANTALLKEYS:0; }catch(e){} }
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
 var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchPls=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
@@ -352,6 +356,7 @@ function layout(){
   // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
   if(UIWizard){ try{ UIWizard.FrameStyle=3; UIWizard.MoveStyle=0; UIWizard.DisableWindowSizing=false; }catch(e){} }
   capW=-1; applyCaption();
+  applyKeyMode();
 }
 function on_size(w,h){ W=w; H=h; layout(); }
 
@@ -439,6 +444,7 @@ function drawNav(gr){
 
 function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null;   // clear stale click targets from the previous view
+  applyKeyMode();
   var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
