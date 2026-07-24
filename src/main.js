@@ -179,6 +179,11 @@ function currentLyricLine(){
 function lyTick(){ var d=lyCur-lyPos; if(Math.abs(d)<0.01){ lyPos=lyCur; stopLyAnim(); } else lyPos+=d*0.25; paintDirty='queue'; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
+// Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
+var caretOn=true, caretTimer=null;
+function caretTick(){ if(view!=='search'){ stopCaret(); return; } caretOn=!caretOn; paintDirty='searchbox'; var b=searchBoxRect(); window.RepaintRect(b.x,b.y,b.w,b.h); }
+function startCaret(){ if(!caretTimer){ caretOn=true; caretTimer=window.SetInterval(caretTick,530); } }
+function stopCaret(){ if(caretTimer){ window.ClearInterval(caretTimer); caretTimer=null; } caretOn=true; }
 function readFirst(paths){
   for(var i=0;i<paths.length;i++){
     try{ if(utils.IsFile && !utils.IsFile(paths[i])) continue; var t=utils.ReadUTF8(paths[i]); if(t && t.length) return t; }catch(e){}
@@ -394,6 +399,7 @@ function on_paint(gr){
   gr.SetSmoothingMode(2);
   if(d==='bar'){ drawBar(gr); return; }
   if(d==='queue'){ drawQueue(gr); return; }
+  if(d==='searchbox'){ if(view==='search') drawSearchBox(gr,R.main); return; }
   gr.FillSolidRect(0,0,W,H,COL.black);
   drawTitleBar(gr);
   drawNav(gr);
@@ -462,6 +468,7 @@ function drawNav(gr){
 function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   applyKeyMode();
+  if(view==='search') startCaret(); else stopCaret();
   var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
@@ -624,16 +631,27 @@ function drawArtist(gr,r){
     y=ty+22;
   }
 }
+// The search field, factored out so the blinking caret can repaint just this
+// strip (paintDirty='searchbox') instead of the whole view twice a second.
+function searchBoxRect(){ var r=R.main, boxW=Math.min(520,r.w-M.cpad*2); return {x:r.x+M.cpad-2,y:r.y+22,w:boxW+8,h:52}; }
+function drawSearchBox(gr,r){
+  var x0=r.x+M.cpad, boxH=48, boxY=r.y+24, boxW=Math.min(520,r.w-M.cpad*2), tx=x0+48;
+  gr.FillSolidRect(x0-2,boxY-2,boxW+8,boxH+4,COL.base);   // clean bg for partial repaints
+  gr.FillRoundRect(x0,boxY,boxW,boxH,24,24,RGB(42,42,42));
+  tC(gr,GLYPH.search,FONT.iconBtn,COL.text2,x0+8,boxY,40,boxH);
+  var empty=!searchQuery.length, caretX;
+  if(empty){ tL(gr,'What do you want to play?',FONT.sect2,COL.text3,tx+12,boxY,boxW-60,boxH); caretX=tx; }
+  else { tL(gr,searchQuery,FONT.sect2,COL.text,tx,boxY,boxW-60,boxH); caretX=tx+gr.CalcTextWidth(searchQuery,FONT.sect2)+2; }
+  if(caretOn) gr.FillSolidRect(caretX,boxY+12,2,boxH-24,COL.text);
+}
 function drawSearch(gr,r){
   HB_CARD=[]; HB_TR=[];
   computeSearch();
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
-  var boxH=48, boxY=r.y+24, boxW=Math.min(520,w);
-  gr.FillRoundRect(x0,boxY,boxW,boxH,24,24,RGB(42,42,42));
-  tC(gr,GLYPH.search,FONT.iconBtn,COL.text2,x0+8,boxY,40,boxH);
+  var boxH=48, boxY=r.y+24;
+  drawSearchBox(gr,r);
   var empty=!searchQuery.length;
-  tL(gr,empty?'What do you want to play?':(searchQuery+'|'),FONT.sect2,empty?COL.text3:COL.text,x0+48,boxY,boxW-60,boxH);
-  if(empty) return;
+  if(empty){ tC(gr,'Search your playlists and library',FONT.qArtist,COL.text3,r.x,boxY+boxH+30,r.w,18); return; }
   var y=boxY+boxH+26, any=false;
   if(searchArts.length){
     any=true;
@@ -874,7 +892,7 @@ function on_char(code){
   if(code===8) searchQuery=searchQuery.slice(0,-1);
   else if(code===27) searchQuery='';
   else if(code>=32) searchQuery+=String.fromCharCode(code);
-  searchScroll=0; window.Repaint();
+  searchScroll=0; caretOn=true; window.Repaint();   // keep caret solid right after a keystroke
 }
 function on_mouse_wheel(step){
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
@@ -887,7 +905,7 @@ function on_mouse_wheel(step){
   else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
   window.Repaint();
 }
-function on_script_unload(){ stopLyAnim(); }
+function on_script_unload(){ stopLyAnim(); stopCaret(); }
 function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
 function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
 function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
