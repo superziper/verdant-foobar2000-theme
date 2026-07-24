@@ -57,6 +57,11 @@ FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 GLYPH.search=String.fromCharCode(0xE721);
+GLYPH.cmin=String.fromCharCode(0xE921); GLYPH.cmax=String.fromCharCode(0xE922); GLYPH.crestore=String.fromCharCode(0xE923); GLYPH.cclose=String.fromCharCode(0xE8BB);
+FONT.cap = gf('Segoe MDL2 Assets',10);
+/* Custom window title bar via UI Wizard (foo_ui_wizard, already installed) — frameless + our own controls */
+var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
+var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
 
 /* ------------------------- title formats ------------------------- */
 var TF = {
@@ -231,7 +236,7 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
-var HB_CARD=[], HB_ARTIST=[], HB_HOME=null;
+var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null;
 var rightTab='queue';
 var view='playlist', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
@@ -250,17 +255,19 @@ function getMeta(pi){
 function invalidateItems(){ plCacheMap={}; plMetaMap={}; }
 
 function layout(){
-  var pad=M.pad, gap=M.gap;
+  var pad=M.pad, gap=M.gap, top0=TBH;   // reserve the title bar strip at the very top
   R.barY=H-M.barH;
-  R.top={x:pad,y:pad,bottom:R.barY-pad};
+  R.top={x:pad,y:top0,bottom:R.barY-pad};
   R.navX=pad; R.navW=M.navW;
   R.queueW=M.queueW; R.queueX=W-pad-R.queueW;
   R.mainX=R.navX+R.navW+gap; R.mainW=R.queueX-gap-R.mainX;
   var topH=R.top.bottom-R.top.y;
-  R.navTop={x:R.navX,y:pad,w:R.navW,h:M.navTopH};
-  R.navLib={x:R.navX,y:pad+M.navTopH+gap,w:R.navW,h:topH-M.navTopH-gap};
-  R.main={x:R.mainX,y:pad,w:R.mainW,h:topH};
-  R.queue={x:R.queueX,y:pad,w:R.queueW,h:topH};
+  R.navTop={x:R.navX,y:top0,w:R.navW,h:M.navTopH};
+  R.navLib={x:R.navX,y:top0+M.navTopH+gap,w:R.navW,h:topH-M.navTopH-gap};
+  R.main={x:R.mainX,y:top0,w:R.mainW,h:topH};
+  R.queue={x:R.queueX,y:top0,w:R.queueW,h:topH};
+  // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
+  if(UIWizard){ try{ UIWizard.FrameStyle=3; UIWizard.MoveStyle=0; UIWizard.SetCaptionAreaSize(0,0,Math.max(0,W-CAPBW*3),TBH); UIWizard.DisableWindowSizing=false; }catch(e){} }
 }
 function on_size(w,h){ W=w; H=h; layout(); }
 
@@ -282,12 +289,28 @@ function on_paint(gr){
   if(d==='bar'){ drawBar(gr); return; }
   if(d==='queue'){ drawQueue(gr); return; }
   gr.FillSolidRect(0,0,W,H,COL.black);
+  drawTitleBar(gr);
   drawNav(gr);
   drawMain(gr);
   drawQueue(gr);
   drawBar(gr);
 }
 
+function winMaxed(){ if(!UIWizard) return false; try{ return UIWizard.WindowState===1; }catch(e){ return false; } }
+function drawCapBtn(gr,glyph,x,w,isClose){
+  var hover=hv(x,0,x+w,TBH);
+  if(hover) gr.FillSolidRect(x,0,w,TBH,isClose?RGB(232,17,35):RGB(48,48,48));
+  tC(gr,glyph,FONT.cap,(hover&&isClose)?COL.text:COL.text2,x,0,w,TBH);
+}
+function drawTitleBar(gr){
+  gr.FillSolidRect(0,0,W,TBH,COL.black);
+  tL(gr,'foobar × Spotify',FONT.plSub,COL.text3,14,0,300,TBH);
+  var closeX=W-CAPBW, maxX=W-CAPBW*2, minX=W-CAPBW*3;
+  drawCapBtn(gr,GLYPH.cmin,minX,CAPBW,false);
+  drawCapBtn(gr,winMaxed()?GLYPH.crestore:GLYPH.cmax,maxX,CAPBW,false);
+  drawCapBtn(gr,GLYPH.cclose,closeX,CAPBW,true);
+  HB_CAP={minX:minX,maxX:maxX,closeX:closeX,bw:CAPBW};
+}
 function drawNav(gr){
   HB_PL=[];
   // top card
@@ -663,6 +686,12 @@ function doCtrl(act){
 function on_mouse_lbtn_up(x,y){
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; window.Repaint(); return; }
   if(drag==='vol'){ drag=null; return; }
+  if(HB_CAP && y<TBH){
+    if(x>=HB_CAP.closeX){ fb.Exit(); return; }
+    if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } window.Repaint(); return; }
+    if(x>=HB_CAP.minX){ if(UIWizard){ try{ UIWizard.WindowMinimize(); }catch(e){} } return; }
+    return;
+  }
   var i;
   for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lyPos=currentLyricLine(); } else stopLyAnim(); window.Repaint(); return; } }
   for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
@@ -676,6 +705,7 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
+  if(HB_CAP && y<TBH && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0);
   for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
   for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
@@ -733,5 +763,6 @@ function on_playlist_items_removed(){ invalidateItems(); window.Repaint(); }
 function on_playlist_items_reordered(){ invalidateItems(); window.Repaint(); }
 function on_item_focus_change(){ window.Repaint(); }
 
+layout();
 updateNP();
-console.log('[foobar-spotify] Phase 3 loaded (perf pass)');
+console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
