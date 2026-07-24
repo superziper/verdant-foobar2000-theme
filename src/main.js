@@ -122,17 +122,33 @@ function getThumb(h,key,size){
 function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:null; }
 
 /* ------------------------- library-backed artist list ------------------------- */
-var artistList=null;
+var artistList=null, artistTracksMap=null, artistCoverCache={};
 function getArtistList(){
   if(artistList) return artistList;
   var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
-  var out=[];
+  var out=[]; artistTracksMap={};
   if(lib && lib.Count){
     var names=TF.artistName.EvalWithMetadbs(lib), seen={};
-    for(var i=0;i<names.length;i++){ var nm=names[i]; if(nm && !seen[nm]){ seen[nm]=1; out.push({name:nm, handle:lib[i]}); } }
+    for(var i=0;i<names.length;i++){
+      var nm=names[i]; if(!nm) continue;
+      if(!artistTracksMap[nm]) artistTracksMap[nm]=[];
+      artistTracksMap[nm].push(lib[i]);
+      if(!seen[nm]){ seen[nm]=1; out.push({name:nm, handle:lib[i]}); }
+    }
     out.sort(function(a,b){ var an=a.name.toLowerCase(), bn=b.name.toLowerCase(); return an<bn?-1:(an>bn?1:0); });
   }
   artistList=out; return out;
+}
+// artist avatar = the artist's first track that actually has embedded art
+// (else the given fallback handle -> placeholder). Scanned lazily, cached per artist.
+function artistCover(name,fallback){
+  if(artistCoverCache.hasOwnProperty(name)) return artistCoverCache[name];
+  var h=fallback, list=artistTracksMap?artistTracksMap[name]:null;
+  if(list){
+    var seenAlb={}, cap=Math.min(list.length,40);
+    for(var i=0;i<cap;i++){ var hh=list[i]; if(!hh) continue; var k=albKey(hh); if(seenAlb[k]) continue; seenAlb[k]=1; if(getArt(hh)){ h=hh; break; } }
+  }
+  artistCoverCache[name]=h; return h;
 }
 function loadArtist(name){
   viewArtist=name; artScroll=0; artistAlbums=[];
@@ -237,6 +253,46 @@ function drawRounded(gr,x,y,size,rad,h,seed){
   if(ri) gr.DrawImage(ri,x,y,size,size,0,0,ri.Width,ri.Height,0,255);
   else gr.FillRoundRect(x,y,size,size,rad,rad,coverCol(seed));
 }
+/* Playlist cover: first up-to-4 DISTINCT albums that actually have art.
+   >=4 found -> 2x2 mosaic; otherwise a single (first-available) cover. Both cached. */
+var plCoverCache={}, mosaicCache={};
+function plCovers(pi){
+  if(plCoverCache.hasOwnProperty(pi)) return plCoverCache[pi];
+  var it=getItems(pi), res={list:[], single:null};
+  if(it && it.Count){
+    var seenAlb={}, cap=Math.min(it.Count,40);
+    for(var i=0;i<cap && res.list.length<4;i++){
+      var h=it[i]; if(!h) continue; var k=albKey(h); if(seenAlb[k]) continue;
+      if(getArt(h)){ seenAlb[k]=1; res.list.push(h); if(!res.single) res.single=h; }
+    }
+    if(!res.single) res.single=it[0];   // nothing had art: keep the placeholder path
+  }
+  plCoverCache[pi]=res; return res;
+}
+function mosaicImg(handles,seed,size,rad){
+  var key=(seed||'')+'|'+size+'|m'+rad;
+  if(mosaicCache.hasOwnProperty(key)) return mosaicCache[key];
+  var res=null;
+  try{
+    var cv=gdi.CreateImage(size,size), g=cv.GetGraphics();
+    var h1=Math.floor(size/2), h2=size-h1;
+    var cells=[[0,0,h1,h1],[h1,0,h2,h1],[0,h1,h1,h2],[h1,h1,h2,h2]];
+    for(var i=0;i<4;i++){
+      var art=getArt(handles[i]), c=cells[i];
+      if(art){ var rz=art.Resize(c[2],c[3]); g.DrawImage(rz,c[0],c[1],c[2],c[3],0,0,rz.Width,rz.Height); }
+      else g.FillSolidRect(c[0],c[1],c[2],c[3],coverCol((seed||'')+i));
+    }
+    cv.ReleaseGraphics(g);
+    if(rad>0) cv.ApplyMask(roundMask(size,rad));
+    res=cv;
+  }catch(e){ res=null; }
+  mosaicCache[key]=res; return res;
+}
+function drawPlCover(gr,x,y,size,rad,pi,seed){
+  var cov=plCovers(pi);
+  if(cov.list.length>=4){ var mi=mosaicImg(cov.list,seed,size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
+  drawRounded(gr,x,y,size,rad,cov.single,seed);
+}
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='', paintDirty='all';
@@ -279,7 +335,7 @@ function getMeta(pi){
   }
   return plMetaMap[pi];
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; }
 
 function layout(){
   var pad=M.pad, gap=M.gap, top0=TBH;   // reserve the title bar strip at the very top
@@ -395,7 +451,7 @@ function drawPlaylist(gr,r){
   // header gradient wash (square top corners; polish later)
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
-  drawRounded(gr,ax,ay,art,8,firstHandle(p.i),p.name);
+  drawPlCover(gr,ax,ay,art,8,p.i,p.name);
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
@@ -455,7 +511,7 @@ function drawPlaylist(gr,r){
 function drawPlaylistCard(gr,x,y,w,i){
   gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
   var cs=w-24;
-  drawRounded(gr,x+12,y+12,cs,6,firstHandle(i),plman.GetPlaylistName(i));
+  drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
@@ -463,7 +519,7 @@ function drawPlaylistCard(gr,x,y,w,i){
 function drawArtistCard(gr,x,y,w,a){
   gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
   var cs=w-24;
-  drawCircle(gr,x+12,y+12,cs,a.handle,a.name);
+  drawCircle(gr,x+12,y+12,cs,artistCover(a.name,a.handle),a.name);
   tC(gr,a.name,FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tC(gr,'Artist',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'artist',id:a.name});
@@ -501,6 +557,7 @@ function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
   var cover=artistAlbums.length?artistAlbums[0].handle:null;
+  for(var ci=0;ci<artistAlbums.length;ci++){ if(getArt(artistAlbums[ci].handle)){ cover=artistAlbums[ci].handle; break; } }
   gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
   var art=150, ay=r.y+34;
   drawCircle(gr,x0,ay,art,cover,viewArtist);
@@ -788,9 +845,9 @@ function on_mouse_wheel(step){
   window.Repaint();
 }
 function on_script_unload(){ stopLyAnim(); }
-function on_library_items_added(){ artistList=null; searchIdx=null; searchQ2=null; window.Repaint(); }
-function on_library_items_removed(){ artistList=null; searchIdx=null; searchQ2=null; window.Repaint(); }
-function on_library_items_changed(){ artistList=null; searchIdx=null; searchQ2=null; window.Repaint(); }
+function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
+function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
+function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; window.Repaint(); }
 
 /* ------------------------- playback callbacks ------------------------- */
 function on_playback_new_track(){ updateNP(); window.Repaint(); }
@@ -804,7 +861,7 @@ function on_playback_time(){
 function on_playback_seek(){ window.Repaint(); }
 function on_playback_order_changed(){ repaintBar(); }
 function on_volume_change(){ repaintBar(); }
-function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; updateNP(); window.Repaint(); }
+function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; updateNP(); window.Repaint(); }
 function on_playlist_switch(){ firstRow=0; invalidateItems(); window.Repaint(); }
 function on_playlists_changed(){ invalidateItems(); window.Repaint(); }
 function on_playlist_items_added(){ invalidateItems(); window.Repaint(); }
