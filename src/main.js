@@ -1,7 +1,7 @@
 'use strict';
 
 /* =============================================================
- * foobar2000 x Spotify  —  Phase 3, milestone A: app shell
+ * foobar2000 x Spotify  -  Phase 3, milestone A: app shell
  * -------------------------------------------------------------
  * Real data, real library. Three rounded panels on black + a
  * bottom playback bar, mirroring the approved HTML mockup:
@@ -57,9 +57,11 @@ FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
 GLYPH.search=String.fromCharCode(0xE721);
+var CH_DOT=String.fromCharCode(0xB7), CH_BULL=String.fromCharCode(0x2022);
+GLYPH.clock=String.fromCharCode(0xE823);
 GLYPH.cmin=String.fromCharCode(0xE921); GLYPH.cmax=String.fromCharCode(0xE922); GLYPH.crestore=String.fromCharCode(0xE923); GLYPH.cclose=String.fromCharCode(0xE8BB);
 FONT.cap = gf('Segoe MDL2 Assets',10);
-/* Custom window title bar via UI Wizard (foo_ui_wizard, already installed) — frameless + our own controls */
+/* Custom window title bar via UI Wizard (foo_ui_wizard, already installed) - frameless + our own controls */
 var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
 var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
 FONT.menu = gf('Segoe UI',12);
@@ -354,7 +356,7 @@ function drawNav(gr){
     drawCover(gr,cx,cy,cs,4,firstHandle(i),nm);
     var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx;
     tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
-    tL(gr,'Playlist · '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
+    tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i});
   }
 }
@@ -377,7 +379,7 @@ function drawPlaylist(gr,r){
   var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
-  tL(gr,'apip · '+p.count+' songs',FONT.meta,COL.text2,tx,ay+150,tw,22);
+  tL(gr,'apip '+CH_DOT+' '+p.count+' songs',FONT.meta,COL.text2,tx,ay+150,tw,22);
 
   // track list
   var lx=r.x+M.cpad, rx=r.x+r.w-M.cpad;
@@ -390,7 +392,7 @@ function drawPlaylist(gr,r){
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
-  tR(gr,'◷',FONT.head,COL.text2,rx-durW,listTop,durW,20);
+  tR(gr,GLYPH.clock,FONT.icon,COL.text2,rx-durW,listTop,durW,20);
   gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
 
   var rowsTop=listTop+34, rh=M.rowH;
@@ -436,7 +438,7 @@ function drawPlaylistCard(gr,x,y,w,i){
   var cs=w-24;
   drawRounded(gr,x+12,y+12,cs,6,firstHandle(i),plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24,20);
-  tL(gr,'Playlist · '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
+  tL(gr,'Playlist '+CH_DOT+' '+plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a){
@@ -480,7 +482,7 @@ function drawArtist(gr,r){
   for(i=0;i<artistAlbums.length;i++) songs+=artistAlbums[i].tracks.length;
   tL(gr,'ARTIST',FONT.eyebrow,COL.text,tx,ay+10,tw,18);
   tL(gr,viewArtist,FONT.title,COL.text,tx,ay+30,tw,70);
-  tL(gr,artistAlbums.length+' albums · '+songs+' songs in your library',FONT.meta,COL.text2,tx,ay+112,tw,22);
+  tL(gr,artistAlbums.length+' albums '+CH_DOT+' '+songs+' songs in your library',FONT.meta,COL.text2,tx,ay+112,tw,22);
   ART_MAXBLOCK=Math.max(0,artistAlbums.length-1);
   var y=r.y+236;
   for(var b=artScroll;b<artistAlbums.length;b++){
@@ -488,7 +490,7 @@ function drawArtist(gr,r){
     var al=artistAlbums[b];
     drawRounded(gr,x0,y,72,6,al.handle,al.album);
     tL(gr,al.album,FONT.sect2,COL.text,x0+88,y+6,w-88,26);
-    tL(gr,(al.year||'')+' · '+al.tracks.length+' songs',FONT.meta,COL.text2,x0+88,y+38,w-88,20);
+    tL(gr,(al.year||'')+' '+CH_DOT+' '+al.tracks.length+' songs',FONT.meta,COL.text2,x0+88,y+38,w-88,20);
     var ty=y+84;
     for(var t=0;t<al.tracks.length;t++){
       if(ty+40>bottom) break;
@@ -533,7 +535,7 @@ function drawSearch(gr,r){
       if(hv(r.x,ry,r.x+r.w,ry+rh)) gr.FillRoundRect(x0-8,ry,w+16,rh,4,4,COL.rowHover);
       drawCover(gr,x0,ry+8,40,4,tr.h,tr.album||tr.title);
       tL(gr,tr.title,FONT.rowTitle,COL.text,x0+52,ry+8,w-52-durW,20);
-      tL(gr,tr.artist+(tr.album?('  •  '+tr.album):''),FONT.rowArtist,COL.text2,x0+52,ry+30,w-52-durW,16);
+      tL(gr,tr.artist+(tr.album?('  '+CH_BULL+'  '+tr.album):''),FONT.rowArtist,COL.text2,x0+52,ry+30,w-52-durW,16);
       tR(gr,tr.len,FONT.rowCell,COL.text2,r.x+r.w-pad-durW,ry,durW,rh);
       HB_TR.push({x0:x0-8,y0:ry,x1:r.x+r.w-pad+8,y1:ry+rh,srch:true,idx:k});
     }
