@@ -144,21 +144,16 @@ function vol2pos(v){ return Math.pow(2, v/10); }                                
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
-// Spotify-style INDEPENDENT shuffle + repeat, mapped onto foobar's single PlaybackOrder enum
-// (0 Default, 1 Repeat-Playlist, 2 Repeat-Track, 4 Shuffle-tracks; shuffle already loops forever).
+// Spotify-style shuffle + repeat. Repeat maps to native PlaybackOrder (0/1/2); SHUFFLE is our own
+// (we play from a hidden shuffled copy of the playlist -> accurate "next up"). See shuffle engine below.
 var pbShuffle=false, pbRepeat=0;   // pbRepeat: 0 off | 1 all | 2 one
-function applyPlaybackOrder(){
-  var o = (pbRepeat===2) ? 2 : (pbShuffle ? 4 : (pbRepeat===1 ? 1 : 0));
-  setOrder(o);
+function applyPlaybackOrder(){ setOrder(pbRepeat===2?2:(pbRepeat===1?1:0)); }   // native handles repeat only
+function syncOrderFromFb(){ var o=readOrder(); pbRepeat=(o===2)?2:(o===1?1:0); }
+function toggleShuffle(){
+  pbShuffle=!pbShuffle;
+  if(fb.IsPlaying||fb.IsPaused){ if(pbShuffle) shuffleEnterFromCurrent(); else shuffleExitToSource(); }
+  applyPlaybackOrder(); repaintAll();
 }
-function syncOrderFromFb(){   // reflect an order changed elsewhere (foobar menu) without clobbering our intent
-  var o=readOrder();
-  if(o===2) pbRepeat=2;
-  else if(o>=3){ pbShuffle=true; if(pbRepeat===2) pbRepeat=0; }
-  else if(o===1){ pbShuffle=false; pbRepeat=1; }
-  else { pbShuffle=false; pbRepeat=0; }
-}
-function toggleShuffle(){ pbShuffle=!pbShuffle; applyPlaybackOrder(); }
 function cycleRepeat(){ pbRepeat=(pbRepeat+1)%3; applyPlaybackOrder(); }
 
 /* ------------------------- album art (lazy sync cache, keyed by album) ------------------------- */
@@ -486,6 +481,50 @@ function vizStyleLabel(){ for(var i=0;i<VIZ_STYLES.length;i++) if(VIZ_STYLES[i][
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
+/* ------------------------- custom shuffle engine ------------------------- */
+// Shuffle plays from a hidden shuffled copy so the "next up" list is the real order.
+// Reshuffles every time shuffle is toggled on / a playlist is started while shuffle is on.
+var SHUF='__spotify_shuffle__', shufSrcName='';   // shufSrcName = the real playlist we shuffled from
+function isHiddenPl(nm){ return nm===ROUTE || nm===SHUF; }
+function playlistOfName(nm){ for(var i=0;i<plman.PlaylistCount;i++) if(plman.GetPlaylistName(i)===nm) return i; return -1; }
+function handleArray(pi){ var it=getItems(pi), a=[]; if(it){ for(var i=0;i<it.Count;i++) a.push(it[i]); } return a; }
+function sameHandle(a,b){ return !!(a&&b&&a.Path===b.Path); }
+function indexOfHandle(arr,h){ if(!h) return -1; for(var i=0;i<arr.length;i++) if(sameHandle(arr[i],h)) return i; return -1; }
+function shuffleArr(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function playShuffled(pi,startHandle,name,preservePos){   // build hidden shuffled copy of pi (start first) and play it
+  var arr=handleArray(pi); if(!arr.length) return;
+  shuffleArr(arr);
+  if(startHandle){ var ci=indexOfHandle(arr,startHandle); if(ci>=0) arr.splice(ci,1); arr.unshift(startHandle); }
+  if(name!==undefined && !isHiddenPl(name)) shufSrcName=name;
+  var pl=plman.FindOrCreatePlaylist(SHUF,true);
+  try{ plman.ClearPlaylist(pl); }catch(e){}
+  var hl=fb.CreateHandleList(); for(var i=0;i<arr.length;i++) hl.Add(arr[i]);
+  plman.InsertPlaylistItems(pl,0,hl,false);
+  var savedActive=plman.ActivePlaylist, wasActive=(fb.IsPlaying||fb.IsPaused), pos=fb.PlaybackTime;
+  plman.ExecutePlaylistDefaultAction(pl,0);
+  try{ plman.ActivePlaylist=savedActive; }catch(e){}   // keep the user's viewed playlist, not the hidden one
+  if(preservePos && wasActive && pos>0){ try{ fb.PlaybackTime=pos; }catch(e){} }
+  invalidateItems();
+}
+function shuffleEnterFromCurrent(){   // toggled shuffle ON mid-playback -> reshuffle the current source, keep current track
+  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+  var src=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist; if(src<0) return;
+  playShuffled(src,NP,plman.GetPlaylistName(src),true);
+}
+function shuffleExitToSource(){   // toggled shuffle OFF -> resume the real playlist at the current track, in order
+  var si=playlistOfName(shufSrcName); if(si<0) return;
+  var it=getItems(si), idx=0; if(it){ for(var i=0;i<it.Count;i++) if(sameHandle(it[i],NP)){ idx=i; break; } }
+  var savedActive=plman.ActivePlaylist, wasActive=(fb.IsPlaying||fb.IsPaused), pos=fb.PlaybackTime;
+  plman.ExecutePlaylistDefaultAction(si,idx);
+  try{ plman.ActivePlaylist=savedActive; }catch(e){}
+  if(wasActive && pos>0){ try{ fb.PlaybackTime=pos; }catch(e){} }
+}
+function playPlaylistItem(pl,item){   // clicking a track: shuffle-aware
+  if(pbShuffle) playShuffled(pl,getItems(pl)[item],plman.GetPlaylistName(pl),false);
+  else plman.ExecutePlaylistDefaultAction(pl,item);
+}
+// is the now-playing track this playlist's shuffled source? (for highlighting the right row)
+function npIsShuffleOf(name){ return pbShuffle && NP && name===shufSrcName; }
 var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
 // Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
@@ -674,7 +713,7 @@ function drawNav(gr){
   panelBg(gr,R.navLib,COL.base);
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
   var active=plman.ActivePlaylist;
-  var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)!==ROUTE) pls.push(i); }
+  var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
   // pinned "add playlist" footer at the very bottom (always visible)
   var footH=94, footTop=R.navLib.y+R.navLib.h-footH;
   // scrollable playlist list, cropped just above the footer (continuous: partial peek row like the songs list)
@@ -759,12 +798,13 @@ function drawPlaylist(gr,r){
   if(firstRow>maxFirst) firstRow=maxFirst;
   if(firstRow<0) firstRow=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
-  var items=getItems(p.i), meta=getMeta(p.i);
+  var items=getItems(p.i), meta=getMeta(p.i), shufHere=npIsShuffleOf(p.name);
   for(var v=0; ; v++){
     var ry=rowsTop+v*rh; if(ry>=cropY) break;   // draw one partial "peek" row past the fold
     var j=firstRow+v; if(j>=p.count) break;
     var h=items[j]; if(!h){ continue; }
-    var isPlaying=playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j;
+    var isPlaying=(playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j)
+                  || (shufHere && sameHandle(h,NP));   // playing from the hidden shuffle copy of this playlist
     var isHover=hv(r.x,ry,r.x+r.w,ry+rh);
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
@@ -815,7 +855,7 @@ function drawHome(gr,r){
   var y=r.y+18;
   // ---- Your Playlists: single horizontal shelf (scroll sideways) ----
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
-  var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)!==ROUTE) pls.push(i); }
+  var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
   HOME_PLMAX=Math.max(0,pls.length-cols);
   if(plScroll>HOME_PLMAX) plScroll=HOME_PLMAX; if(plScroll<0) plScroll=0;
   var shelfY=y, rightEdge=r.x+r.w;
@@ -1002,17 +1042,17 @@ function drawQueue(gr){
   var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
   var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
-  var pnm=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?plman.GetPlaylistName(pli):'';
+  var rawnm=(pli>=0)?plman.GetPlaylistName(pli):'';
+  var pnm=(rawnm===SHUF)?shufSrcName:(rawnm===ROUTE?'':rawnm);   // show the real source, not the hidden copy
   if(qy+30<bottom){
-    tL(gr,pnm?((pbShuffle?'Shuffling: ':'Next from: ')+pnm):'Next up',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=32;
-    if(pbShuffle){ tL(gr,'Up next is randomized by foobar',FONT.qArtist,COL.text3,x,qy,r.w-36,16); qy+=24; } else qy+=4;
+    tL(gr,pnm?('Next from: '+pnm):'Next up',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=36;
     if(pli>=0){
       var items=getItems(pli), qmeta=getMeta(pli), cnt=plman.PlaylistItemCount(pli);
       for(var k=start;k<cnt&&shown<20;k++){
         if(qy+rh>bottom) break;
         var h=items[k]; if(!h) continue;
         drawCover(gr,x,qy,44,4,h,qmeta.album[k]||String(k),qmeta.artkey[k]);
-        tL(gr,qmeta.title[k],FONT.qName,pbShuffle?COL.text2:COL.text,x+56,qy+5,r.w-36-56,18);
+        tL(gr,qmeta.title[k],FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
         tL(gr,qmeta.artist[k],FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
         qy+=rh; shown++;
       }
@@ -1252,7 +1292,8 @@ function drawFullscreen(gr){
   else if(fsView==='viz') drawFsViz(gr,bot);
   else {
     var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null, pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
-    var src=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?plman.GetPlaylistName(pli):'Your Library';
+    var rnm=(pli>=0)?plman.GetPlaylistName(pli):'';
+    var src=(rnm===SHUF)?shufSrcName:((rnm&&!isHiddenPl(rnm))?rnm:'Your Library');
     tL(gr,'PLAYING FROM PLAYLIST',FONT.fsSrc,COL.text2,72,54,W-144,18);
     tL(gr,src,FONT.sect,COL.text,72,76,W-144,28);
     drawFsDefault(gr,bot);
@@ -1279,8 +1320,11 @@ function on_mouse_rbtn_up(x,y){
   return false;   // elsewhere: let JSplitter's own panel menu through (Reload / Configure / Properties)
 }
 function playHandleList(handles,idx){
+  var arr=[]; for(var i=0;i<handles.length;i++) arr.push(handles[i]);
+  var start=arr[idx];
+  if(pbShuffle){ shuffleArr(arr); var ci=indexOfHandle(arr,start); if(ci>=0) arr.splice(ci,1); arr.unshift(start); shufSrcName=ROUTE; idx=0; }
   var hl=fb.CreateHandleList();
-  for(var i=0;i<handles.length;i++) hl.Add(handles[i]);
+  for(i=0;i<arr.length;i++) hl.Add(arr[i]);
   var pi=plman.FindOrCreatePlaylist(ROUTE,true);
   try{ plman.ClearPlaylist(pi); }catch(e){}
   plman.InsertPlaylistItems(pi,0,hl,false);
@@ -1376,7 +1420,7 @@ function on_mouse_lbtn_up(x,y){
   if(HB_ADDPL && inRect(x,y,HB_ADDPL)){ var np=createNewPlaylist(); plman.ActivePlaylist=np; firstRow=0; view='playlist'; repaintAll(); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=0; view='playlist'; repaintAll(); return; } }
-  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.lib) playArtistTrack(tr.block,tr.idx); else plman.ExecutePlaylistDefaultAction(tr.pl,tr.item); repaintAll(); return; } }
+  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.lib) playArtistTrack(tr.block,tr.idx); else playPlaylistItem(tr.pl,tr.item); repaintAll(); return; } }
 }
 function hoverSig(x,y){
   var i;
@@ -1487,5 +1531,5 @@ function on_item_focus_change(){ repaintAll(); }
 
 layout();
 updateNP();
-syncOrderFromFb();
+syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
 console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
