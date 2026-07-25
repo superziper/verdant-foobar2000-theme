@@ -144,6 +144,22 @@ function vol2pos(v){ return Math.pow(2, v/10); }                                
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
+// Spotify-style INDEPENDENT shuffle + repeat, mapped onto foobar's single PlaybackOrder enum
+// (0 Default, 1 Repeat-Playlist, 2 Repeat-Track, 4 Shuffle-tracks; shuffle already loops forever).
+var pbShuffle=false, pbRepeat=0;   // pbRepeat: 0 off | 1 all | 2 one
+function applyPlaybackOrder(){
+  var o = (pbRepeat===2) ? 2 : (pbShuffle ? 4 : (pbRepeat===1 ? 1 : 0));
+  setOrder(o);
+}
+function syncOrderFromFb(){   // reflect an order changed elsewhere (foobar menu) without clobbering our intent
+  var o=readOrder();
+  if(o===2) pbRepeat=2;
+  else if(o>=3){ pbShuffle=true; if(pbRepeat===2) pbRepeat=0; }
+  else if(o===1){ pbShuffle=false; pbRepeat=1; }
+  else { pbShuffle=false; pbRepeat=0; }
+}
+function toggleShuffle(){ pbShuffle=!pbShuffle; applyPlaybackOrder(); }
+function cycleRepeat(){ pbRepeat=(pbRepeat+1)%3; applyPlaybackOrder(); }
 
 /* ------------------------- album art (lazy sync cache, keyed by album) ------------------------- */
 var artCache={}, albKeyCache={}, thumbCache={};
@@ -1002,7 +1018,7 @@ function drawBar(gr){
   // center: transport row + seekbar
   var cxC=Math.round(W/2);
   var pcy=by+25, phv=hv(cxC-22,by+4,cxC+22,by+46), pb=phv?42:38, pbx=cxC-pb/2, pby=pcy-pb/2;
-  var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
+  var shufOn=pbShuffle, repMode=pbRepeat;
   ctrlBtn(gr,'shuffle',cxC-92,pcy,shufOn,'shuffle');
   ctrlBtn(gr,'prev',cxC-50,pcy,false,'prev');
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
@@ -1186,7 +1202,7 @@ function drawFsBar(gr){
   tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,46,16);
   HB_SEEK={x0:sbX,y0:sbY-10,x1:sbX+sbW,y1:sbY+14,x:sbX,w:sbW};
   var cxC=Math.round(W/2), cy=by+86, pb=56, pbx=cxC-pb/2, pby=cy-pb/2;
-  var order=readOrder(), shufOn=order>=3, repMode=(order===1?1:(order===2?2:0));
+  var shufOn=pbShuffle, repMode=pbRepeat;
   ctrlBtn(gr,'shuffle',cxC-150,cy,shufOn,'shuffle');
   ctrlBtn(gr,'prev',cxC-84,cy,false,'prev');
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
@@ -1278,8 +1294,8 @@ function doCtrl(act){
   if(act==='play') fb.PlayOrPause();
   else if(act==='next') fb.Next();
   else if(act==='prev') fb.Prev();
-  else if(act==='shuffle'){ var o=readOrder(); setOrder(o>=3?0:4); }
-  else if(act==='repeat'){ var o=readOrder(); setOrder(o===0?1:(o===1?2:0)); }
+  else if(act==='shuffle') toggleShuffle();
+  else if(act==='repeat') cycleRepeat();
   else if(act==='fullscreen'){ enterFullscreen(); return; }
   repaintAll();
 }
@@ -1436,7 +1452,7 @@ function on_playback_time(){
   if(lyricsShown && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
 }
 function on_playback_seek(){ repaintAll(); }
-function on_playback_order_changed(){ repaintBar(); }
+function on_playback_order_changed(){ syncOrderFromFb(); repaintBar(); }
 function on_volume_change(){ repaintBar(); }
 function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; updateNP(); repaintAll(); }
 function on_playlist_switch(){ firstRow=0; invalidateItems(); repaintAll(); }
@@ -1448,4 +1464,5 @@ function on_item_focus_change(){ repaintAll(); }
 
 layout();
 updateNP();
+syncOrderFromFb();
 console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
