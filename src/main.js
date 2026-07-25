@@ -980,22 +980,44 @@ function drawQueue(gr){
   tL(gr,npArtistStr,FONT.qArtist,COL.text2,x+60,qy+26,r.w-36-60,16);
   qy+=70;
 
+  var rh=56, bottom=r.y+r.h-8, shown=0, qi;
+  // playback-mode indicators (update the instant you toggle shuffle / repeat)
+  drawIcon(gr,'shuffle',pbShuffle?COL.green:COL.text3,r.x+r.w-40,qy,22,24,18);
+  drawIcon(gr,pbRepeat===2?'repeat1':'repeat',pbRepeat>0?COL.green:COL.text3,r.x+r.w-70,qy,22,24,18);
+  // real manual queue (explicitly-queued tracks) first, if any
+  var mq=null; try{ mq=plman.GetPlaybackQueueHandles(); }catch(e){ mq=null; }
+  if(mq && mq.Count){
+    tL(gr,'Next in queue',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=36;
+    for(qi=0;qi<mq.Count && shown<18;qi++){
+      if(qy+rh>bottom) break;
+      var qh=mq[qi]; if(!qh) continue;
+      drawCover(gr,x,qy,44,4,qh,'mq'+qi);
+      tL(gr,TF.title.EvalWithMetadb(qh),FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
+      tL(gr,TF.artist.EvalWithMetadb(qh),FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+      qy+=rh; shown++;
+    }
+    qy+=10;
+  }
+  // "Next up" from the playing playlist
   var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
   var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
-  var qlabel=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?('Next from: '+plman.GetPlaylistName(pli)):'Next up';
-  tL(gr,qlabel,FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
-  if(pli>=0){
-    var items=getItems(pli), qmeta=getMeta(pli), cnt=plman.PlaylistItemCount(pli), rh=56, bottom=r.y+r.h-8, shown=0;
-    for(var k=start;k<cnt&&shown<20;k++){
-      if(qy+rh>bottom) break;
-      var h=items[k]; if(!h) continue;
-      drawCover(gr,x,qy,44,4,h,qmeta.album[k]||String(k),qmeta.artkey[k]);
-      tL(gr,qmeta.title[k],FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
-      tL(gr,qmeta.artist[k],FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
-      qy+=rh; shown++;
+  var pnm=(pli>=0 && plman.GetPlaylistName(pli)!==ROUTE)?plman.GetPlaylistName(pli):'';
+  if(qy+30<bottom){
+    tL(gr,pnm?((pbShuffle?'Shuffling: ':'Next from: ')+pnm):'Next up',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=32;
+    if(pbShuffle){ tL(gr,'Up next is randomized by foobar',FONT.qArtist,COL.text3,x,qy,r.w-36,16); qy+=24; } else qy+=4;
+    if(pli>=0){
+      var items=getItems(pli), qmeta=getMeta(pli), cnt=plman.PlaylistItemCount(pli);
+      for(var k=start;k<cnt&&shown<20;k++){
+        if(qy+rh>bottom) break;
+        var h=items[k]; if(!h) continue;
+        drawCover(gr,x,qy,44,4,h,qmeta.album[k]||String(k),qmeta.artkey[k]);
+        tL(gr,qmeta.title[k],FONT.qName,pbShuffle?COL.text2:COL.text,x+56,qy+5,r.w-36-56,18);
+        tL(gr,qmeta.artist[k],FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+        qy+=rh; shown++;
+      }
+      if(shown===0) tL(gr,'End of playlist',FONT.qArtist,COL.text3,x,qy,r.w-36,18);
     }
-    if(shown===0) tL(gr,'End of playlist',FONT.qArtist,COL.text3,x,qy,r.w-36,18);
   }
 }
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
@@ -1452,7 +1474,8 @@ function on_playback_time(){
   if(lyricsShown && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
 }
 function on_playback_seek(){ repaintAll(); }
-function on_playback_order_changed(){ syncOrderFromFb(); repaintBar(); }
+function on_playback_order_changed(){ syncOrderFromFb(); repaintAll(); }
+function on_playback_queue_changed(){ repaintAll(); }
 function on_volume_change(){ repaintBar(); }
 function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; updateNP(); repaintAll(); }
 function on_playlist_switch(){ firstRow=0; invalidateItems(); repaintAll(); }
