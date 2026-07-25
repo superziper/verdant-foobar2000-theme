@@ -1113,23 +1113,46 @@ function drawFsLyrics(gr,bot){
   if(lyrics.synced) drawRollingLyrics(gr,140,150,W-280,bot,FONT.fsLyric,COL.green,'l');
   else { stopLyAnim(); var L=lyLayout(gr,W-280,FONT.fsLyric), yy=170, s; for(var li=0;li<lyrics.lines.length;li++){ var p=L.subs[li]; for(s=0;s<p.length&&yy+L.subLh<=bot;s++){ tL(gr,p[s],FONT.fsLyric,COL.text2,140,yy,W-280,L.subLh); yy+=L.subLh; } yy+=Math.round(L.subLh*0.4); if(yy>=bot) break; } }
 }
+function withA(c,a){ return ((a&0xff)<<24)|(c&0xffffff); }
 function drawFsViz(gr,bot){
   fsMiniNP(gr);
-  var top=200, cy=Math.round((top+bot)/2), col=blend(COL.green,COL.text,0.15);
-  if(vizStyle==='mirror'){
-    var n=VIZ_N, gap=6, bw=Math.max(3,Math.floor((W-280-(n-1)*gap)/n)), x0=Math.round((W-(n*bw+(n-1)*gap))/2), hh=(bot-top)/2-10;
-    for(var i=0;i<n;i++){ var v=vizBars[i]||0, bh=Math.max(2,Math.round(v*hh)), bx=x0+i*(bw+gap); gr.FillSolidRect(bx,cy-bh,bw,bh*2,col); }
-  } else if(vizStyle==='wave'){
-    var pts=vizWave.length?vizWave:[], amp=(bot-top)/2-10, px=140, pw=W-280, m=Math.max(1,pts.length-1), lx=px, ly=cy, k;
-    for(k=0;k<pts.length;k++){ var nx=px+Math.round(pw*k/m), ny=cy-Math.round(Math.max(-1,Math.min(1,pts[k]))*amp); if(k>0) gr.DrawLine(lx,ly,nx,ny,2,col); lx=nx; ly=ny; }
-    if(!pts.length) gr.DrawLine(px,cy,px+pw,cy,2,col);
+  var top=200, cy=Math.round((top+bot)/2), n=VIZ_N, i;
+  var hue=artHue(NP,'np');
+  var cBot=COL.green, cTop=blend(blend(COL.green,COL.text,0.55),hue,0.20);   // bright, lightly album-tinted
+  var gLow=withA(COL.green,70), gZero=withA(COL.green,0);
+  if(vizStyle==='wave'){
+    var pts=vizWave.length?vizWave:[], amp=(bot-top)/2-16, px=150, pw=W-300, m=Math.max(1,pts.length-1), xs=[], ys=[], k;
+    for(k=0;k<pts.length;k++){ xs[k]=px+Math.round(pw*k/m); ys[k]=cy-Math.round(Math.max(-1,Math.min(1,pts[k]))*amp); }
+    for(k=0;k<pts.length;k++){ var hgt=Math.abs(ys[k]-cy); if(hgt>1) gr.FillSolidRect(xs[k],Math.min(ys[k],cy),2,hgt,withA(COL.green,24)); }   // soft body
+    var pass=[[8,withA(cTop,38)],[4,withA(cTop,110)],[2,cTop]];                          // glow -> bright line
+    for(var pp=0;pp<pass.length;pp++){ for(k=1;k<pts.length;k++) gr.DrawLine(xs[k-1],ys[k-1],xs[k],ys[k],pass[pp][0],pass[pp][1]); }
+    if(!pts.length) gr.DrawLine(px,cy,px+pw,cy,2,cTop);
   } else if(vizStyle==='radial'){
-    var n2=VIZ_N, ccx=Math.round(W/2), ccy=cy, R=Math.min(bot-top,W*0.5)/2-40, maxLen=R*0.9;
-    for(var r=0;r<n2;r++){ var vv=vizBars[r]||0, ang=(r/n2)*Math.PI*2-Math.PI/2, ln=8+vv*maxLen; var ix=ccx+Math.cos(ang)*R, iy=ccy+Math.sin(ang)*R, ox=ccx+Math.cos(ang)*(R+ln), oy=ccy+Math.sin(ang)*(R+ln); gr.DrawLine(ix,iy,ox,oy,3,col); }
-    drawCircle(gr,ccx-R+14,ccy-R+14,(R-14)*2,NP,'np');
-  } else {  // bars (default)
-    var n3=VIZ_N, gap3=6, bw3=Math.max(3,Math.floor((W-280-(n3-1)*gap3)/n3)), x03=Math.round((W-(n3*bw3+(n3-1)*gap3))/2), h3=bot-top-10, midY=bot-10;
-    for(var b=0;b<n3;b++){ var vb=vizBars[b]||0, bh3=Math.max(3,Math.round(vb*h3)); gr.FillSolidRect(x03+b*(bw3+gap3),midY-bh3,bw3,bh3,col); }
+    var ccx=Math.round(W/2), ccy=cy, R=Math.round(Math.min(bot-top,W*0.42)/2-24), maxLen=Math.round(R*0.85);
+    for(i=0;i<n;i++){
+      var vv=vizBars[i]||0, ang=(i/n)*Math.PI*2-Math.PI/2, ln=10+vv*maxLen;
+      var ix=ccx+Math.cos(ang)*R, iy=ccy+Math.sin(ang)*R, ox=ccx+Math.cos(ang)*(R+ln), oy=ccy+Math.sin(ang)*(R+ln);
+      gr.DrawLine(ix,iy,ox,oy,6,withA(cTop,55));    // glow
+      gr.DrawLine(ix,iy,ox,oy,3,cTop);
+      gr.FillEllipse(ox-2.5,oy-2.5,5,5,cTop);        // rounded cap
+    }
+    drawCircle(gr,ccx-R+16,ccy-R+16,(R-16)*2,NP,'np');
+  } else {   // bars / mirror -- gradient bars, rounded caps, reflection
+    var mirror=(vizStyle==='mirror'), cell=(W-300)/n, bw=Math.max(4,Math.floor(cell*0.62)), gap=cell-bw, x0=Math.round((W-cell*n+gap)/2);
+    var hh=mirror?((bot-top)/2-18):(bot-top-16), baseY=mirror?cy:(bot-14);
+    for(i=0;i<n;i++){
+      var v2=vizBars[i]||0, bh=Math.max(3,Math.round(v2*hh)), bx=Math.round(x0+i*cell);
+      if(mirror){
+        gr.FillGradRect(bx,cy-bh,bw,bh,90,cTop,cBot,1.0);
+        gr.FillGradRect(bx,cy,bw,bh,90,cBot,cTop,1.0);
+        if(bh>=bw){ gr.FillEllipse(bx,cy-bh-bw/2,bw,bw,cTop); gr.FillEllipse(bx,cy+bh-bw/2,bw,bw,cTop); }
+      } else {
+        var byT=baseY-bh;
+        gr.FillGradRect(bx,byT,bw,bh,90,cTop,cBot,1.0);
+        if(bh>=bw) gr.FillEllipse(bx,byT-bw/2,bw,bw,cTop);
+        gr.FillGradRect(bx,baseY+3,bw,Math.round(bh*0.32),90,gLow,gZero,1.0);   // reflection
+      }
+    }
   }
   drawVizDropdown(gr);
 }
