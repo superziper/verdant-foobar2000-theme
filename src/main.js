@@ -401,7 +401,7 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // serviced while a partial flag is pending can't blank the rest of the window.
 var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
-var firstRow=0, hoverKey='', mx=-1, my=-1, drag=null, dragFrac=0;
+var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
@@ -437,8 +437,8 @@ function dashRect(gr,x,y,w,h,col,dash,gap,th){
 }
 // Always-visible, draggable scrollbar. Each scrollable view calls this at the end
 // of its draw; setScroll() maps a drag/click to that view's scroll index.
-function drawScrollbar(gr,sx,top,h,idx,maxIdx,vis,total){
-  if(total<=vis || h<=6){ SB=null; return; }
+function drawScrollbar(gr,sx,top,h,idx,maxIdx,vis,total,show){
+  if(total<=vis || h<=6 || !show){ SB=null; return; }   // hidden until the section is hovered
   var sw=6;
   gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,20));
   var thumbH=Math.max(36,Math.round(h*vis/total)); if(thumbH>h) thumbH=h;
@@ -456,8 +456,8 @@ function setScroll(y){
   repaintAll();
 }
 // Dedicated scrollbar for the sidebar playlist list (independent of the main view).
-function drawScrollbarN(gr,sx,top,h,idx,maxIdx,vis,total){
-  if(total<=vis || h<=6){ SBN=null; return; }
+function drawScrollbarN(gr,sx,top,h,idx,maxIdx,vis,total,show){
+  if(total<=vis || h<=6 || !show){ SBN=null; return; }   // hidden until the section is hovered
   var sw=5;
   gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,16));
   var thumbH=Math.max(30,Math.round(h*vis/total)); if(thumbH>h) thumbH=h;
@@ -529,8 +529,8 @@ var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[]
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
 // Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
 var plScroll=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
-function drawScrollbarH(gr,sx,top,w,idx,maxIdx,vis,total){
-  if(total<=vis || w<=6){ SBH=null; return; }
+function drawScrollbarH(gr,sx,top,w,idx,maxIdx,vis,total,show){
+  if(total<=vis || w<=6 || !show){ SBH=null; return; }   // hidden until the section is hovered
   var sh=5;
   gr.FillSolidRect(sx,top,w,sh,RGBA(255,255,255,20));
   var thumbW=Math.max(40,Math.round(w*vis/total)); if(thumbW>w) thumbW=w;
@@ -741,7 +741,7 @@ function drawNav(gr){
   // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
   gr.FillSolidRect(R.navLib.x,cropY,R.navLib.w,R.navLib.y+R.navLib.h-cropY,COL.base);
   if(navScroll<NAV_MAX) gr.FillGradRect(R.navLib.x+8,cropY-30,R.navLib.w-16,30,90,RGBA(18,18,18,0),COL.base,1.0);
-  drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,cropY-listTop,navScroll,NAV_MAX,fullVis,pls.length);
+  drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,cropY-listTop,navScroll,NAV_MAX,fullVis,pls.length,hv(R.navLib.x,R.navLib.y,R.navLib.x+R.navLib.w,R.navLib.y+R.navLib.h)||drag==='scrolln');
   // dashed "drag a file / click to create" box (hint stays this size; whole section is the drop target)
   var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+5, bh2=footH-14;
   var addHov=navDropHover||hv(bx,by,bx+bw2,by+bh2);
@@ -824,7 +824,7 @@ function drawPlaylist(gr,r){
   }
   // crop the peek row cleanly at the panel edge, then fade the bottom to hint "more below"
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
-  drawScrollbar(gr,rx+8,rowsTop,cropY-rowsTop,firstRow,maxFirst,fullVis,p.count);
+  drawScrollbar(gr,rx+8,rowsTop,cropY-rowsTop,firstRow,maxFirst,fullVis,p.count,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
@@ -867,7 +867,7 @@ function drawHome(gr,r){
   gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);   // clean crop of the peek card (no fade band)
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
-  drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length);
+  drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length,hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
   y=shelfY+scardH+(HOME_PLMAX>0?26:16);
   // ---- Artists in your library: vertical grid (scroll down) ----
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
@@ -884,7 +884,7 @@ function drawHome(gr,r){
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
   }
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
-  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows);
+  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows,hv(x0,y,x0+w+16,cropY)||drag==='scroll');
 }
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
@@ -1447,10 +1447,19 @@ function on_mouse_move(x,y){
   if(drag==='scroll'){ setScroll(y); return; }
   if(drag==='scrollh'){ setScrollH(x); return; }
   if(drag==='scrolln'){ setScrollN(y); return; }
-  var sig=hoverSig(x,y);
-  if(sig!==hoverKey){ hoverKey=sig; repaintAll(); }
+  var sig=hoverSig(x,y), sk=scrollSection(x,y);
+  if(sig!==hoverKey || sk!==scrollKey){ hoverKey=sig; scrollKey=sk; repaintAll(); }   // sk change reveals/hides the section scrollbar
 }
-function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''){ hoverKey=''; repaintAll(); } }
+// which scrollable section the cursor is over (so entering/leaving reveals the hover scrollbar even over gaps)
+function scrollSection(x,y){
+  if(R.navLib && x>=R.navLib.x && x<R.navLib.x+R.navLib.w && y>=R.navLib.y && y<R.navLib.y+R.navLib.h) return 'nav';
+  if(R.main && x>=R.main.x && x<R.main.x+R.main.w+16 && y>=R.main.y && y<R.main.y+R.main.h){
+    if(view==='home') return (y>=HOME_SHELF_Y0 && y<HOME_SHELF_Y1+16)?'shelf':'arts';
+    if(view==='playlist') return 'pl';
+  }
+  return '';
+}
+function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''||scrollKey!==''){ hoverKey=''; scrollKey=''; repaintAll(); } }
 function on_char(code){
   if(renameEdit){
     if(code===8) renameEdit.text=renameEdit.text.slice(0,-1);
