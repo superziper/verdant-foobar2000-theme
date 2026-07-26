@@ -866,7 +866,7 @@ function drawHome(gr,r){
     drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
   }
   gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.black);   // hide right overflow in the gap to the queue
-  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,scardH,0,RGBA(18,18,18,0),COL.base,1.0);
+  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,scardH,0,RGBA(0,0,0,0),COL.black,1.0);   // fade to the black gap, not base (no line)
   if(plScroll>0)          gr.FillGradRect(x0,shelfY,44,scardH,0,COL.base,RGBA(18,18,18,0),1.0);
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
@@ -887,7 +887,7 @@ function drawHome(gr,r){
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
   }
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);
-  if(homeScroll<HOME_MAXROW) gr.FillGradRect(x0,cropY-40,w,40,90,RGBA(18,18,18,0),COL.base,1.0);
+  if(homeScroll<HOME_MAXROW) gr.FillGradRect(r.x,cropY-40,r.w,40,90,RGBA(0,0,0,0),COL.black,1.0);   // fade to the black gutter, not base (no line)
   drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows);
 }
 function drawArtist(gr,r){
