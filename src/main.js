@@ -856,20 +856,22 @@ function drawHome(gr,r){
   // ---- Your Playlists: single horizontal shelf (scroll sideways) ----
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
   var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
+  // undersize the shelf cards so ~0.4 of the next card peeks at the right edge -> signals it scrolls
+  var scardW=(pls.length>cols)?Math.floor((w-cols*gap)/(cols+0.4)):cardW, scardH=scardW+56;
   HOME_PLMAX=Math.max(0,pls.length-cols);
   if(plScroll>HOME_PLMAX) plScroll=HOME_PLMAX; if(plScroll<0) plScroll=0;
   var shelfY=y, rightEdge=r.x+r.w;
   for(i=plScroll;i<pls.length;i++){
-    var cx=x0+(i-plScroll)*(cardW+gap); if(cx>=rightEdge) break;   // last card peeks past the fold
-    drawPlaylistCard(gr,cx,shelfY,cardW,pls[i]);
+    var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;   // partial "peek" card past the fold
+    drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
   }
-  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,cardH+2,COL.black);   // hide right overflow in the gap to the queue
-  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,cardH,0,RGBA(18,18,18,0),COL.base,1.0);
-  if(plScroll>0)          gr.FillGradRect(x0,shelfY,44,cardH,0,COL.base,RGBA(18,18,18,0),1.0);
-  HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+cardH;
-  var sbY=shelfY+cardH+6;
+  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.black);   // hide right overflow in the gap to the queue
+  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,scardH,0,RGBA(18,18,18,0),COL.base,1.0);
+  if(plScroll>0)          gr.FillGradRect(x0,shelfY,44,scardH,0,COL.base,RGBA(18,18,18,0),1.0);
+  HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
+  var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length);
-  y=shelfY+cardH+(HOME_PLMAX>0?26:16);
+  y=shelfY+scardH+(HOME_PLMAX>0?26:16);
   // ---- Artists in your library: vertical grid (scroll down) ----
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
   var arts=getArtistList();
