@@ -401,7 +401,7 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // serviced while a partial flag is pending can't blank the rest of the window.
 var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
-var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=90;
+var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=180;
 // smooth (eased) scrolling for the continuous lists: animate the rendered position toward a target
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
@@ -1496,7 +1496,7 @@ function on_mouse_wheel(step){
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){
     if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; repaintAll(); }   // shelf: card-stepped
-    else { homeScrollT-=step*WHEEL_PX; if(homeScrollT<0)homeScrollT=0; if(homeScrollT>HOME_MAXROW)homeScrollT=HOME_MAXROW; startScrollAnim(); }          // artists: smooth
+    else { homeScrollT-=step*Math.round(WHEEL_PX*1.7); if(homeScrollT<0)homeScrollT=0; if(homeScrollT>HOME_MAXROW)homeScrollT=HOME_MAXROW; startScrollAnim(); }   // artists: smooth (bigger step: tall cards)
     return;
   }
   else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; repaintAll(); return; }
