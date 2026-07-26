@@ -267,7 +267,7 @@ function lyTick(){
   var d=lyTarget-lyScroll; if(Math.abs(d)<0.5){ lyScroll=lyTarget; stopLyAnim(); } else lyScroll+=d*0.25;
   if(fsMode){ repaintAll(); } else { dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 }
-function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,33); }
+function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,16); }   // 60fps roll
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
 // Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
 var caretOn=true, caretTimer=null;
