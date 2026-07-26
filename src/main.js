@@ -403,11 +403,12 @@ var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
 var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=90;
 // smooth (eased) scrolling for the continuous lists: animate the rendered position toward a target
-var firstRowT=0, navScrollT=0, PL_MAXPX=0, scrollTimer=null;
+var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var moving=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll;
+  var moving=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll;
   if(Math.abs(d1)>=0.5){ firstRow+=d1*0.22; moving=true; } else firstRow=firstRowT;
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.22; moving=true; } else navScroll=navScrollT;
+  if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.22; moving=true; } else homeScroll=homeScrollT;
   repaintAll();
   if(!moving) stopScrollAnim();
 }
@@ -462,8 +463,8 @@ function drawScrollbar(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
 function setScroll(y){
   if(!SB) return;
   var frac=clamp01((y-SB.top-SB.thumbH/2)/Math.max(1,SB.h-SB.thumbH));
-  if(view==='playlist'){ firstRow=firstRowT=Math.round(frac*SB.maxPx); }   // continuous (pixels); sync target so easing doesn't fight the drag
-  else if(view==='home') homeScroll=Math.round(frac*HOME_MAXROW);           // stepped (row index)
+  if(view==='playlist'){ firstRow=firstRowT=Math.round(frac*SB.maxPx); }    // continuous (pixels); sync target so easing doesn't fight the drag
+  else if(view==='home'){ homeScroll=homeScrollT=Math.round(frac*SB.maxPx); }   // continuous (pixels)
   repaintAll();
 }
 // Dedicated scrollbar for the sidebar playlist list (independent of the main view).
@@ -843,54 +844,61 @@ function drawPlaylistCard(gr,x,y,w,i){
   if(cardHov) drawDots(gr,x+w-32,y+cs+16,i);
   HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
 }
-function drawArtistCard(gr,x,y,w,a){
+function drawArtistCard(gr,x,y,w,a,clipTop,clipBot){
   gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawCircle(gr,x+12,y+12,cs,artistCover(a.name,a.handle),a.name);
   tC(gr,a.name,FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tC(gr,'Artist',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
-  HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'artist',id:a.name});
+  var hy0=y, hy1=y+w+56;                                   // clip the click target to the scroll viewport
+  if(clipTop!==undefined && hy0<clipTop) hy0=clipTop;
+  if(clipBot!==undefined && hy1>clipBot) hy1=clipBot;
+  if(hy1>hy0) HB_CARD.push({x0:x,y0:hy0,x1:x+w,y1:hy1,kind:'artist',id:a.name});
 }
 function drawHome(gr,r){
   HB_CARD=[];
-  var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12;
+  var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, rightEdge=r.x+r.w, i;
   var gap=16, cardW=176, cols=Math.max(2,Math.floor((w+gap)/(cardW+gap)));
   cardW=Math.floor((w-gap*(cols-1))/cols);
-  var cardH=cardW+56, i;
-  var y=r.y+18;
-  // ---- Your Playlists: single horizontal shelf (scroll sideways) ----
-  tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
+  var cardH=cardW+56;
+  // ---- geometry ----
+  var shelfTitleY=r.y+18, shelfY=shelfTitleY+42;
   var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
-  // undersize the shelf cards so ~0.4 of the next card peeks at the right edge -> signals it scrolls
   var scardW=(pls.length>cols)?Math.floor((w-cols*gap)/(cols+0.4)):cardW, scardH=scardW+56;
+  var artTitleY=shelfY+scardH+(pls.length>cols?26:16), gy=artTitleY+42;   // artist grid top
+  var cropY=r.y+r.h, rowStep=cardH+8, viewH=cropY-gy;
+  var arts=getArtistList();
+  var totalRows=Math.max(1,Math.ceil(arts.length/cols)), contentH=totalRows*rowStep, maxPx=Math.max(0,contentH-viewH);
+  HOME_MAXROW=maxPx;   // pixels now (continuous artist grid)
+  if(homeScroll>maxPx) homeScroll=maxPx; if(homeScroll<0) homeScroll=0;
+  if(homeScrollT>maxPx) homeScrollT=maxPx; if(homeScrollT<0) homeScrollT=0;
+
+  // ---- 1) artist grid (continuous; the top partial row overflows up, cleared below) ----
+  for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
+    var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
+    if(ay>=cropY) break;
+    if(ay+cardH<=gy) continue;
+    drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
+  }
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);              // crop below the grid
+
+  // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
+  gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);                 // clear the whole band above the grid viewport
+  tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,shelfTitleY,w,28);
   HOME_PLMAX=Math.max(0,pls.length-cols);
   if(plScroll>HOME_PLMAX) plScroll=HOME_PLMAX; if(plScroll<0) plScroll=0;
-  var shelfY=y, rightEdge=r.x+r.w;
   for(i=plScroll;i<pls.length;i++){
-    var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;   // partial "peek" card past the fold
+    var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;
     drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
   }
-  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);   // clean crop of the peek card (no fade band)
+  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll*(scardW+gap),HOME_PLMAX*(scardW+gap),w,pls.length*(scardW+gap),hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
-  y=shelfY+scardH+(HOME_PLMAX>0?26:16);
-  // ---- Artists in your library: vertical grid (scroll down) ----
-  tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
-  var arts=getArtistList();
-  var cropY=r.y+r.h, rowStep=cardH+8;
-  var fullRows=Math.max(1,Math.floor((cropY-y)/rowStep));
-  var totalRows=Math.max(1,Math.ceil(arts.length/cols));
-  HOME_MAXROW=Math.max(0,totalRows-fullRows);
-  if(homeScroll>HOME_MAXROW) homeScroll=HOME_MAXROW;
-  var startIdx=homeScroll*cols;
-  for(i=startIdx;i<arts.length;i++){
-    var col=(i-startIdx)%cols, row=Math.floor((i-startIdx)/cols), ay=y+row*rowStep;
-    if(ay>=cropY) break;   // draw one partial "peek" row past the fold
-    drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
-  }
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
-  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll*rowStep,HOME_MAXROW*rowStep,cropY-y,totalRows*rowStep,hv(x0,y,x0+w+16,cropY)||drag==='scroll');
+  tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,artTitleY,w,28);
+
+  // ---- 3) artist scrollbar (continuous, pixel) ----
+  drawScrollbar(gr,x0+w+8,gy,viewH,homeScroll,maxPx,viewH,contentH,hv(x0,gy,x0+w+16,cropY)||drag==='scroll');
 }
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
@@ -1487,9 +1495,9 @@ function on_mouse_wheel(step){
   }
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){
-    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; }   // stepped
-    else { homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }                             // stepped
-    repaintAll(); return;
+    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; repaintAll(); }   // shelf: card-stepped
+    else { homeScrollT-=step*WHEEL_PX; if(homeScrollT<0)homeScrollT=0; if(homeScrollT>HOME_MAXROW)homeScrollT=HOME_MAXROW; startScrollAnim(); }          // artists: smooth
+    return;
   }
   else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; repaintAll(); return; }
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; repaintAll(); return; }
