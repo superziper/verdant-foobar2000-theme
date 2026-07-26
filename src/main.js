@@ -823,8 +823,7 @@ function drawPlaylist(gr,r){
     HB_TR.push({x0:lx-8,y0:ry,x1:rx+8,y1:ry+rh,pl:p.i,item:j});
   }
   // crop the peek row cleanly at the panel edge, then fade the bottom to hint "more below"
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);
-  if(firstRow<maxFirst) gr.FillGradRect(lx-8,cropY-40,(rx-lx)+16,40,90,RGBA(18,18,18,0),COL.base,1.0);
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
   drawScrollbar(gr,rx+8,rowsTop,cropY-rowsTop,firstRow,maxFirst,fullVis,p.count);
 }
 
@@ -865,9 +864,7 @@ function drawHome(gr,r){
     var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;   // partial "peek" card past the fold
     drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
   }
-  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);   // hide right overflow, matches bg
-  if(plScroll<HOME_PLMAX) gr.FillGradRect(rightEdge-48,shelfY,48,scardH,0,RGBA(18,18,18,0),COL.base,1.0);
-  if(plScroll>0)          gr.FillGradRect(x0,shelfY,44,scardH,0,COL.base,RGBA(18,18,18,0),1.0);
+  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);   // clean crop of the peek card (no fade band)
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length);
@@ -886,8 +883,7 @@ function drawHome(gr,r){
     if(ay>=cropY) break;   // draw one partial "peek" row past the fold
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
   }
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);
-  if(homeScroll<HOME_MAXROW) gr.FillGradRect(x0,cropY-40,w,40,90,RGBA(18,18,18,0),COL.base,1.0);
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
   drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows);
 }
 function drawArtist(gr,r){
