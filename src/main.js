@@ -401,7 +401,7 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // serviced while a partial flag is pending can't blank the rest of the window.
 var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
-var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0;
+var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=90;
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
@@ -437,36 +437,36 @@ function dashRect(gr,x,y,w,h,col,dash,gap,th){
 }
 // Always-visible, draggable scrollbar. Each scrollable view calls this at the end
 // of its draw; setScroll() maps a drag/click to that view's scroll index.
-function drawScrollbar(gr,sx,top,h,idx,maxIdx,vis,total,show){
-  if(total<=vis || h<=6 || !show){ SB=null; return; }   // hidden until the section is hovered
+// Pixel-based scrollbar: thumb size/pos from viewport vs content height, position from scrollPx/maxPx.
+function drawScrollbar(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
+  if(contentH<=viewH || h<=6 || !show){ SB=null; return; }   // hidden until the section is hovered
   var sw=6;
   gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,20));
-  var thumbH=Math.max(36,Math.round(h*vis/total)); if(thumbH>h) thumbH=h;
-  var ty=top+(maxIdx>0?Math.round((h-thumbH)*idx/maxIdx):0);
+  var thumbH=Math.max(36,Math.round(h*viewH/contentH)); if(thumbH>h) thumbH=h;
+  var ty=top+(maxPx>0?Math.round((h-thumbH)*scrollPx/maxPx):0);
   var on=(drag==='scroll')||hv(sx-6,top,sx+sw+6,top+h);
   gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?175:95));
-  SB={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxIdx:maxIdx};
+  SB={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
 }
 function setScroll(y){
   if(!SB) return;
   var frac=clamp01((y-SB.top-SB.thumbH/2)/Math.max(1,SB.h-SB.thumbH));
-  var idx=Math.round(frac*SB.maxIdx);
-  if(view==='playlist') firstRow=idx;
-  else if(view==='home') homeScroll=idx;
+  if(view==='playlist') firstRow=Math.round(frac*SB.maxPx);        // continuous (pixels)
+  else if(view==='home') homeScroll=Math.round(frac*HOME_MAXROW);  // stepped (row index)
   repaintAll();
 }
 // Dedicated scrollbar for the sidebar playlist list (independent of the main view).
-function drawScrollbarN(gr,sx,top,h,idx,maxIdx,vis,total,show){
-  if(total<=vis || h<=6 || !show){ SBN=null; return; }   // hidden until the section is hovered
+function drawScrollbarN(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
+  if(contentH<=viewH || h<=6 || !show){ SBN=null; return; }   // hidden until the section is hovered
   var sw=5;
   gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,16));
-  var thumbH=Math.max(30,Math.round(h*vis/total)); if(thumbH>h) thumbH=h;
-  var ty=top+(maxIdx>0?Math.round((h-thumbH)*idx/maxIdx):0);
+  var thumbH=Math.max(30,Math.round(h*viewH/contentH)); if(thumbH>h) thumbH=h;
+  var ty=top+(maxPx>0?Math.round((h-thumbH)*scrollPx/maxPx):0);
   var on=(drag==='scrolln')||hv(sx-6,top,sx+sw+6,top+h);
   gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?150:80));
-  SBN={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxIdx:maxIdx};
+  SBN={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
 }
-function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/2)/Math.max(1,SBN.h-SBN.thumbH)); navScroll=Math.round(frac*SBN.maxIdx); repaintAll(); }
+function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/2)/Math.max(1,SBN.h-SBN.thumbH)); navScroll=Math.round(frac*SBN.maxPx); repaintAll(); }
 // create a uniquely-named empty playlist, return its index
 function newPlaylistName(){ var b='New Playlist', nm=b, k=1, i; for(;;){ var hit=false; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)===nm){ hit=true; break; } } if(!hit) return nm; k++; nm=b+' '+k; } }
 function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, newPlaylistName()); }
@@ -529,17 +529,17 @@ var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[]
 var HOME_MAXROW=0, ART_MAXBLOCK=0;
 // Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
 var plScroll=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
-function drawScrollbarH(gr,sx,top,w,idx,maxIdx,vis,total,show){
-  if(total<=vis || w<=6 || !show){ SBH=null; return; }   // hidden until the section is hovered
+function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
+  if(contentW<=viewW || w<=6 || !show){ SBH=null; return; }   // hidden until the section is hovered
   var sh=5;
   gr.FillSolidRect(sx,top,w,sh,RGBA(255,255,255,20));
-  var thumbW=Math.max(40,Math.round(w*vis/total)); if(thumbW>w) thumbW=w;
-  var tx=sx+(maxIdx>0?Math.round((w-thumbW)*idx/maxIdx):0);
+  var thumbW=Math.max(40,Math.round(w*viewW/contentW)); if(thumbW>w) thumbW=w;
+  var tx=sx+(maxX>0?Math.round((w-thumbW)*scrollX/maxX):0);
   var on=(drag==='scrollh')||hv(sx,top-6,sx+w,top+sh+6);
   gr.FillSolidRect(tx,top,thumbW,sh,RGBA(255,255,255,on?175:95));
-  SBH={x0:sx,y0:top-6,x1:sx+w,y1:top+sh+6,left:sx,w:w,thumbW:thumbW,maxIdx:maxIdx};
+  SBH={x0:sx,y0:top-6,x1:sx+w,y1:top+sh+6,left:sx,w:w,thumbW:thumbW,maxIdx:HOME_PLMAX};
 }
-function setScrollH(x){
+function setScrollH(x){   // shelf stays card-stepped
   if(!SBH) return;
   var frac=clamp01((x-SBH.left-SBH.thumbW/2)/Math.max(1,SBH.w-SBH.thumbW));
   plScroll=Math.round(frac*SBH.maxIdx); repaintAll();
@@ -716,16 +716,14 @@ function drawNav(gr){
   var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
   // pinned "add playlist" footer at the very bottom (always visible)
   var footH=94, footTop=R.navLib.y+R.navLib.h-footH;
-  // scrollable playlist list, cropped just above the footer (continuous: partial peek row like the songs list)
-  var listTop=R.navLib.y+52, rh=58, cropY=footTop-6;
-  var fullVis=Math.max(0,Math.floor((cropY-listTop)/rh));
-  NAV_MAX=Math.max(0,pls.length-fullVis);
-  if(navScroll>NAV_MAX) navScroll=NAV_MAX; if(navScroll<0) navScroll=0;
-  var v;
-  for(v=0; ; v++){
-    var ry=listTop+v*rh; if(ry>=cropY) break;    // draw a partial peek row past the fold
-    var idx=navScroll+v; if(idx>=pls.length) break;
-    var i2=pls[idx], nm=plman.GetPlaylistName(i2);
+  // scrollable playlist list (continuous pixel scroll), cropped just above the footer
+  var listTop=R.navLib.y+52, rh=58, cropY=footTop-6, viewH=cropY-listTop;
+  var contentH=pls.length*rh, maxPx=Math.max(0,contentH-viewH);   // navScroll is a PIXEL offset
+  NAV_MAX=maxPx;
+  if(navScroll>maxPx) navScroll=maxPx; if(navScroll<0) navScroll=0;
+  for(var k=Math.floor(navScroll/rh); k<pls.length; k++){
+    var ry=listTop+k*rh-navScroll; if(ry>=cropY) break;
+    var i2=pls[k], nm=plman.GetPlaylistName(i2);
     var isA=(view==='playlist' && i2===active);
     if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
     else if(hv(R.navLib.x,ry,R.navLib.x+R.navLib.w,ry+rh)) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
@@ -738,10 +736,11 @@ function drawNav(gr){
     if(rowHov) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
     HB_PL.push({x0:R.navLib.x,y0:ry,x1:R.navLib.x+R.navLib.w,y1:ry+rh,i:i2});
   }
-  // crop the peek row overflow, fade the bottom when there's more, then the always-visible scrollbar
+  // crop partial rows top & bottom, redraw the sticky "Your Library" title, then the scrollbar
+  gr.FillSolidRect(R.navLib.x,listTop-rh,R.navLib.w,rh,COL.base);
   gr.FillSolidRect(R.navLib.x,cropY,R.navLib.w,R.navLib.y+R.navLib.h-cropY,COL.base);
-  if(navScroll<NAV_MAX) gr.FillGradRect(R.navLib.x+8,cropY-30,R.navLib.w-16,30,90,RGBA(18,18,18,0),COL.base,1.0);
-  drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,cropY-listTop,navScroll,NAV_MAX,fullVis,pls.length,hv(R.navLib.x,R.navLib.y,R.navLib.x+R.navLib.w,R.navLib.y+R.navLib.h)||drag==='scrolln');
+  tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
+  drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,viewH,navScroll,maxPx,viewH,contentH,hv(R.navLib.x,R.navLib.y,R.navLib.x+R.navLib.w,R.navLib.y+R.navLib.h)||drag==='scrolln');
   // dashed "drag a file / click to create" box (hint stays this size; whole section is the drop target)
   var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+5, bh2=footH-14;
   var addHov=navDropHover||hv(bx,by,bx+bw2,by+bh2);
@@ -785,46 +784,39 @@ function drawPlaylist(gr,r){
   var albumW=Math.round((rx-lx-numW-durW-cgap*3)*0.34);
   var titleX=lx+numW+cgap, titleW=(rx-lx-numW-durW-albumW-cgap*3);
   var albumX=titleX+titleW+cgap;
-  // header row
-  tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
-  tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
-  tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
-  drawIcon(gr,'clock',COL.text2,rx-16,listTop,16,20,15);
-  gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
-
-  var rowsTop=listTop+34, rh=M.rowH, cropY=r.y+r.h;
-  var fullVis=Math.max(0,Math.floor((cropY-rowsTop)/rh));
-  var maxFirst=Math.max(0,p.count-fullVis);
-  if(firstRow>maxFirst) firstRow=maxFirst;
-  if(firstRow<0) firstRow=0;
+  var rowsTop=listTop+34, rh=M.rowH, cropY=r.y+r.h, viewH=cropY-rowsTop;
+  var contentH=p.count*rh, maxPx=Math.max(0,contentH-viewH);   // firstRow is now a PIXEL offset (continuous scroll)
+  if(firstRow>maxPx) firstRow=maxPx; if(firstRow<0) firstRow=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
   var items=getItems(p.i), meta=getMeta(p.i), shufHere=npIsShuffleOf(p.name);
-  for(var v=0; ; v++){
-    var ry=rowsTop+v*rh; if(ry>=cropY) break;   // draw one partial "peek" row past the fold
-    var j=firstRow+v; if(j>=p.count) break;
+  for(var j=Math.floor(firstRow/rh); j<p.count; j++){
+    var ry=rowsTop+j*rh-firstRow; if(ry>=cropY) break;
     var h=items[j]; if(!h){ continue; }
     var isPlaying=(playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j)
                   || (shufHere && sameHandle(h,NP));   // playing from the hidden shuffle copy of this playlist
     var isHover=hv(r.x,ry,r.x+r.w,ry+rh);
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
-    // index / play glyph on hover
     if(isHover) drawIcon(gr,'play',COL.text,lx,ry,numW,rh,14);
     else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
-    // cover + title + artist (from batch-cached metadata)
     var cs=40, cy=ry+(rh-cs)/2, alb=meta.album[j];
     drawCover(gr,titleX,cy,cs,3,h,alb||String(j),meta.artkey[j]);
     var ttx=titleX+cs+12, ttw=titleW-cs-12;
     tL(gr,meta.title[j],FONT.rowTitle,titleCol,ttx,ry+8,ttw,20);
     tL(gr,meta.artist[j],FONT.rowArtist,COL.text2,ttx,ry+30,ttw,16);
-    // album + duration
     tL(gr,alb,FONT.rowCell,COL.text2,albumX,ry,albumW,rh);
     tR(gr,meta.len[j],FONT.rowCell,COL.text2,rx-durW,ry,durW,rh);
     HB_TR.push({x0:lx-8,y0:ry,x1:rx+8,y1:ry+rh,pl:p.i,item:j});
   }
-  // crop the peek row cleanly at the panel edge, then fade the bottom to hint "more below"
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
-  drawScrollbar(gr,rx+8,rowsTop,cropY-rowsTop,firstRow,maxFirst,fullVis,p.count,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
+  // crop the partial rows top & bottom, then draw the sticky column header on top
+  gr.FillSolidRect(r.x,rowsTop-rh,r.w,rh,COL.base);
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);
+  tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
+  tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
+  tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
+  drawIcon(gr,'clock',COL.text2,rx-16,listTop,16,20,15);
+  gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
+  drawScrollbar(gr,rx+8,rowsTop,viewH,firstRow,maxPx,viewH,contentH,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
@@ -867,7 +859,7 @@ function drawHome(gr,r){
   gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);   // clean crop of the peek card (no fade band)
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
-  drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,cols,pls.length,hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
+  drawScrollbarH(gr,x0,sbY,w,plScroll*(scardW+gap),HOME_PLMAX*(scardW+gap),w,pls.length*(scardW+gap),hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
   y=shelfY+scardH+(HOME_PLMAX>0?26:16);
   // ---- Artists in your library: vertical grid (scroll down) ----
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,y,w,28); y+=42;
@@ -884,7 +876,7 @@ function drawHome(gr,r){
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i]);
   }
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);   // clean crop of the peek row (no fade band)
-  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll,HOME_MAXROW,fullRows,totalRows,hv(x0,y,x0+w+16,cropY)||drag==='scroll');
+  drawScrollbar(gr,x0+w+8,y,cropY-y,homeScroll*rowStep,HOME_MAXROW*rowStep,cropY-y,totalRows*rowStep,hv(x0,y,x0+w+16,cropY)||drag==='scroll');
 }
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
@@ -1477,16 +1469,16 @@ function on_char(code){
 function on_mouse_wheel(step){
   if(fsMode){ fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return; }
   if(R.navLib && mx>=R.navLib.x && mx<R.navLib.x+R.navLib.w && my>=R.navLib.y && my<R.navLib.y+R.navLib.h){
-    navScroll-=step; if(navScroll<0)navScroll=0; if(navScroll>NAV_MAX)navScroll=NAV_MAX; repaintAll(); return;
+    navScroll-=step*WHEEL_PX; if(navScroll<0)navScroll=0; if(navScroll>NAV_MAX)navScroll=NAV_MAX; repaintAll(); return;   // continuous
   }
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){
-    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; }
-    else { homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }
+    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; }   // stepped
+    else { homeScroll-=step; if(homeScroll<0)homeScroll=0; if(homeScroll>HOME_MAXROW)homeScroll=HOME_MAXROW; }                             // stepped
   }
   else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; }
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; }
-  else { firstRow-=step*3; if(firstRow<0)firstRow=0; }
+  else { firstRow-=step*WHEEL_PX; if(firstRow<0)firstRow=0; }   // playlist songs: continuous
   repaintAll();
 }
 /* ---- drag & drop external files anywhere in the library section -> new playlist ---- */
