@@ -399,17 +399,19 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // Repaint scope flags. dirtyAll (sticky) forces a full paint; the partial flags
 // accumulate. A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint
 // serviced while a partial flag is pending can't blank the rest of the window.
-var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false;
+var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false;
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
+function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); }   // scroll: main panel only
+function repaintNav(){ dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
 var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=180;
 // smooth (eased) scrolling for the continuous lists: animate the rendered position toward a target
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var moving=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll;
-  if(Math.abs(d1)>=0.5){ firstRow+=d1*0.22; moving=true; } else firstRow=firstRowT;
-  if(Math.abs(d2)>=0.5){ navScroll+=d2*0.22; moving=true; } else navScroll=navScrollT;
-  if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.22; moving=true; } else homeScroll=homeScrollT;
-  repaintAll();
+  var moving=false, mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll;
+  if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; moving=true; mm=true; } else firstRow=firstRowT;
+  if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; moving=true; mm=true; } else homeScroll=homeScrollT;
+  if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; moving=true; nm=true; } else navScroll=navScrollT;
+  if(mm) repaintMain(); if(nm) repaintNav();   // repaint only the region that's scrolling -> high fps
   if(!moving) stopScrollAnim();
 }
 function startScrollAnim(){ if(!scrollTimer) scrollTimer=window.SetInterval(scrollTick,16); }
@@ -465,7 +467,7 @@ function setScroll(y){
   var frac=clamp01((y-SB.top-SB.thumbH/2)/Math.max(1,SB.h-SB.thumbH));
   if(view==='playlist'){ firstRow=firstRowT=Math.round(frac*SB.maxPx); }    // continuous (pixels); sync target so easing doesn't fight the drag
   else if(view==='home'){ homeScroll=homeScrollT=Math.round(frac*SB.maxPx); }   // continuous (pixels)
-  repaintAll();
+  repaintMain();
 }
 // Dedicated scrollbar for the sidebar playlist list (independent of the main view).
 function drawScrollbarN(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
@@ -478,7 +480,7 @@ function drawScrollbarN(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
   gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?150:80));
   SBN={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
 }
-function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/2)/Math.max(1,SBN.h-SBN.thumbH)); navScroll=navScrollT=Math.round(frac*SBN.maxPx); repaintAll(); }
+function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/2)/Math.max(1,SBN.h-SBN.thumbH)); navScroll=navScrollT=Math.round(frac*SBN.maxPx); repaintNav(); }
 // create a uniquely-named empty playlist, return its index
 function newPlaylistName(){ var b='New Playlist', nm=b, k=1, i; for(;;){ var hit=false; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)===nm){ hit=true; break; } } if(!hit) return nm; k++; nm=b+' '+k; } }
 function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, newPlaylistName()); }
@@ -660,10 +662,10 @@ function drawOverlays(gr){
 }
 function on_paint(gr){
   gr.SetSmoothingMode(2);
-  if(fsMode){ dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; HB_DOTS=[]; drawFullscreen(gr); return; }
-  var anyPartial=dirtyBar||dirtyQueue||dirtySearch;
+  if(fsMode){ dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false; HB_DOTS=[]; drawFullscreen(gr); return; }
+  var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav;
   if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
-    dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false;
+    dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false;
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.base);   // Spotify's real bg (#121212); no base-vs-black seam behind panels
     drawTitleBar(gr);
@@ -675,6 +677,9 @@ function on_paint(gr){
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
+  if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
+  if(dirtyMain){ dirtyMain=false; drawMain(gr); }
+  if(dirtyNav){ dirtyNav=false; drawNav(gr); }
   if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
   if(dirtyBar){ dirtyBar=false; drawBar(gr); }
