@@ -156,23 +156,41 @@ function toggleShuffle(){
 }
 function cycleRepeat(){ pbRepeat=(pbRepeat+1)%3; applyPlaybackOrder(); }
 
-/* ------------------------- album art (lazy sync cache, keyed by album) ------------------------- */
-var artCache={}, albKeyCache={}, thumbCache={};
+/* ------------------------- album art (ASYNC cache, keyed by album) -------------------------
+   Covers are decoded off the paint thread via utils.GetAlbumArtAsyncV2 so scrolling never
+   blocks: a miss draws the placeholder and requests the art; when it arrives we cache it and
+   repaint (coalesced). warmArt() pre-requests a set so covers are ready before you scroll to them. */
+var artCache={}, albKeyCache={}, thumbCache={}, artPending={}, artRepaintPending=false;
 function albKey(h){ if(!h) return ''; var p=h.Path; if(albKeyCache.hasOwnProperty(p)) return albKeyCache[p]; var k=TF.albkey.EvalWithMetadb(h); albKeyCache[p]=k; return k; }
-function getArtK(h,key){
+function artWarmRepaint(){ if(artRepaintPending) return; artRepaintPending=true; window.SetTimeout(function(){ artRepaintPending=false; repaintAll(); },60); }
+function requestArt(h,key){
+  if(!h || artCache.hasOwnProperty(key) || artPending[key]) return;
+  artPending[key]=true;
+  try{
+    utils.GetAlbumArtAsyncV2(0,h,0,false,false,false).then(function(res){
+      var img=res?res.image:null;
+      if(img && img.Width>500){ try{ img=img.Resize(500,Math.round(img.Height*500/img.Width),2); }catch(e){} }
+      artCache[key]=img||null; delete artPending[key]; artWarmRepaint();
+    }, function(){ artCache[key]=null; delete artPending[key]; });
+  }catch(e){ delete artPending[key]; }
+}
+function getArtK(h,key){                        // cached image, or null (not-loaded -> request async)
   if(!h) return null;
   if(artCache.hasOwnProperty(key)) return artCache[key];
-  var img=null;
-  try{ img=utils.GetAlbumArtV2(h,0); if(img&&img.Width>500){ img=img.Resize(500,Math.round(img.Height*500/img.Width),2); } }catch(e){ img=null; }
-  artCache[key]=img||null;
-  return artCache[key];
+  requestArt(h,key);
+  return null;
 }
+function artLoaded(key){ return artCache.hasOwnProperty(key); }   // vs. still-loading (don't cache derivatives yet)
 function getArt(h){ return h?getArtK(h,albKey(h)):null; }
+var warmed={};   // guards one-time warm passes per view; reset when items change
+function warmArt(handles){ if(!handles) return; var n=(handles.length!==undefined)?handles.length:handles.Count; for(var i=0;i<n;i++){ var h=handles[i]; if(h) requestArt(h,albKey(h)); } }
+function warmOnce(tag,handles){ if(warmed[tag]) return; warmed[tag]=1; warmArt(handles); }
 function getThumb(h,key,size){
+  var img=getArtK(h,key);
+  if(!artLoaded(key)) return null;             // still loading -> placeholder, don't cache
   var tk=key+'|'+size;
   if(thumbCache.hasOwnProperty(tk)) return thumbCache[tk];
-  var img=getArtK(h,key), r=null;
-  if(img){ try{ r=img.Resize(size,size,2); }catch(e){ r=null; } }
+  var r=null; if(img){ try{ r=img.Resize(size,size,2); }catch(e){ r=null; } }
   thumbCache[tk]=r; return r;
 }
 function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:null; }
@@ -195,15 +213,11 @@ function getArtistList(){
   }
   artistList=out; return out;
 }
-// artist avatar = the artist's first track that actually has embedded art
-// (else the given fallback handle -> placeholder). Scanned lazily, cached per artist.
+// artist avatar = the artist's first track (optimistic; art loads async, placeholder if none)
 function artistCover(name,fallback){
   if(artistCoverCache.hasOwnProperty(name)) return artistCoverCache[name];
-  var h=fallback, list=artistTracksMap?artistTracksMap[name]:null;
-  if(list){
-    var seenAlb={}, cap=Math.min(list.length,40);
-    for(var i=0;i<cap;i++){ var hh=list[i]; if(!hh) continue; var k=albKey(hh); if(seenAlb[k]) continue; seenAlb[k]=1; if(getArt(hh)){ h=hh; break; } }
-  }
+  var list=artistTracksMap?artistTracksMap[name]:null;
+  var h=(list && list.length)?list[0]:fallback;
   artistCoverCache[name]=h; return h;
 }
 function loadArtist(name){
@@ -317,7 +331,9 @@ function artHue(h,seed){
   if(!h) return coverCol(seed);
   var k=albKey(h);
   if(hueCache.hasOwnProperty(k)) return hueCache[k];
-  var col=coverCol(seed), img=getArt(h);
+  var img=getArt(h);
+  if(!artLoaded(k)) return coverCol(seed);   // still loading -> fallback, don't cache (recompute when it arrives)
+  var col=coverCol(seed);
   if(img){ try{ var s=img.GetColourScheme(1); if(s && s.length) col=s[0]; }catch(e){} }
   hueCache[k]=col; return col;
 }
@@ -339,7 +355,9 @@ function roundMask(size,rad){
 function maskedArt(h,seed,size,mask,tag){
   var k=(seed||'')+'|'+size+'|'+tag;
   if(cArtCache.hasOwnProperty(k)) return cArtCache[k];
-  var res=null, art=getArt(h);
+  var art=h?getArt(h):null;
+  if(h && !artLoaded(albKey(h))) return null;   // still loading -> placeholder, don't cache
+  var res=null;
   if(art){ try{ var img=art.Resize(size,size); img.ApplyMask(mask); res=img; }catch(e){ res=null; } }
   cArtCache[k]=res; return res;
 }
@@ -353,31 +371,34 @@ function drawRounded(gr,x,y,size,rad,h,seed){
   if(ri) gr.DrawImage(ri,x,y,size,size,0,0,ri.Width,ri.Height,0,255);
   else gr.FillRoundRect(x,y,size,size,rad,rad,coverCol(seed));
 }
-/* Playlist cover: first up-to-4 DISTINCT albums that actually have art.
-   >=4 found -> 2x2 mosaic; otherwise a single (first-available) cover. Both cached. */
+/* Playlist cover: first up-to-4 DISTINCT albums (optimistic; art loads async, placeholder if none).
+   >=4 -> 2x2 mosaic; otherwise a single cover. */
 var plCoverCache={}, mosaicCache={};
 function plCovers(pi){
   if(plCoverCache.hasOwnProperty(pi)) return plCoverCache[pi];
   var it=getItems(pi), res={list:[], single:null};
   if(it && it.Count){
-    var seenAlb={}, cap=Math.min(it.Count,40);
+    var seenAlb={}, cap=Math.min(it.Count,60);
     for(var i=0;i<cap && res.list.length<4;i++){
       var h=it[i]; if(!h) continue; var k=albKey(h); if(seenAlb[k]) continue;
-      if(getArt(h)){ seenAlb[k]=1; res.list.push(h); if(!res.single) res.single=h; }
+      seenAlb[k]=1; res.list.push(h); if(!res.single) res.single=h;
     }
-    if(!res.single) res.single=it[0];   // nothing had art: keep the placeholder path
+    if(!res.single) res.single=it[0];
   }
   plCoverCache[pi]=res; return res;
 }
 function mosaicImg(handles,seed,size,rad){
   var key=(seed||'')+'|'+size+'|m'+rad;
   if(mosaicCache.hasOwnProperty(key)) return mosaicCache[key];
+  var i, ready=true;
+  for(i=0;i<4;i++){ getArt(handles[i]); if(!artLoaded(albKey(handles[i]))) ready=false; }   // request all; wait for all
+  if(!ready) return null;                     // still loading -> placeholder single cover; don't cache a half mosaic
   var res=null;
   try{
     var cv=gdi.CreateImage(size,size), g=cv.GetGraphics();
     var h1=Math.floor(size/2), h2=size-h1;
     var cells=[[0,0,h1,h1],[h1,0,h2,h1],[0,h1,h1,h2],[h1,h1,h2,h2]];
-    for(var i=0;i<4;i++){
+    for(i=0;i<4;i++){
       var art=getArt(handles[i]), c=cells[i];
       if(art){ var rz=art.Resize(c[2],c[3]); g.DrawImage(rz,c[0],c[1],c[2],c[3],0,0,rz.Width,rz.Height); }
       else g.FillSolidRect(c[0],c[1],c[2],c[3],coverCol((seed||'')+i));
@@ -577,7 +598,7 @@ function fmtDur(s){
   if(m>0) return m+' min';
   return s+' sec';
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; }
 
 function layout(){
   var pad=M.pad, gap=M.gap, top0=TBH;   // reserve the title bar strip at the very top
@@ -809,6 +830,7 @@ function drawPlaylist(gr,r){
   if(firstRowT>maxPx) firstRowT=maxPx; if(firstRowT<0) firstRowT=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
   var items=getItems(p.i), meta=getMeta(p.i), shufHere=npIsShuffleOf(p.name);
+  warmOnce('pl'+p.i,items);   // pre-load this playlist's covers in the background
   for(var j=Math.floor(firstRow/rh); j<p.count; j++){
     var ry=rowsTop+j*rh-firstRow; if(ry>=cropY) break;
     var h=items[j]; if(!h){ continue; }
@@ -873,6 +895,7 @@ function drawHome(gr,r){
   var artTitleY=shelfY+scardH+(pls.length>cols?26:16), gy=artTitleY+42;   // artist grid top
   var cropY=r.y+r.h, rowStep=cardH+8, viewH=cropY-gy;
   var arts=getArtistList();
+  if(!warmed['home']){ warmed['home']=1; var wa=[],wi; for(wi=0;wi<arts.length;wi++) wa.push(artistCover(arts[wi].name,arts[wi].handle)); for(wi=0;wi<pls.length;wi++) wa.push(plCovers(pls[wi]).single); warmArt(wa); }   // warm artist avatars + shelf covers
   var totalRows=Math.max(1,Math.ceil(arts.length/cols)), contentH=totalRows*rowStep, maxPx=Math.max(0,contentH-viewH);
   HOME_MAXROW=maxPx;   // pixels now (continuous artist grid)
   if(homeScroll>maxPx) homeScroll=maxPx; if(homeScroll<0) homeScroll=0;
@@ -908,8 +931,7 @@ function drawHome(gr,r){
 function drawArtist(gr,r){
   HB_TR=[]; HB_ARTIST=[];
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
-  var cover=artistAlbums.length?artistAlbums[0].handle:null;
-  for(var ci=0;ci<artistAlbums.length;ci++){ if(getArt(artistAlbums[ci].handle)){ cover=artistAlbums[ci].handle; break; } }
+  var cover=artistAlbums.length?artistAlbums[0].handle:null;   // optimistic (art loads async)
   gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
   var art=150, ay=r.y+34;
   drawCircle(gr,x0,ay,art,cover,viewArtist);
@@ -1530,9 +1552,9 @@ function on_drag_drop(action,x,y,mask){
   navDropHover=false; repaintAll();
 }
 function on_script_unload(){ stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); }
-function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
-function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
-function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; searchIdx=null; searchQ2=null; repaintAll(); }
+function on_library_items_added(){ artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null; repaintAll(); }
+function on_library_items_removed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null; repaintAll(); }
+function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null; repaintAll(); }
 
 /* ------------------------- playback callbacks ------------------------- */
 function on_playback_new_track(){ updateNP(); repaintAll(); }
