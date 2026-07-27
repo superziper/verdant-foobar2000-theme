@@ -614,15 +614,15 @@ function fmtDur(s){
 function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; }
 
 function layout(){
-  var pad=M.pad, gap=M.gap, top0=TBH;   // reserve the title bar strip at the very top
+  var g=M.gap, top0=TBH+g;   // one uniform gap on every side, incl. below the title bar and above the bar
   R.barY=H-M.barH;
-  R.top={x:pad,y:top0,bottom:R.barY-pad};
-  R.navX=pad; R.navW=M.navW;
-  R.queueW=M.queueW; R.queueX=W-pad-R.queueW;
-  R.mainX=R.navX+R.navW+gap; R.mainW=R.queueX-gap-R.mainX;
+  R.top={x:g,y:top0,bottom:R.barY-g};
+  R.navX=g; R.navW=M.navW;
+  R.queueW=M.queueW; R.queueX=W-g-R.queueW;
+  R.mainX=R.navX+R.navW+g; R.mainW=R.queueX-g-R.mainX;
   var topH=R.top.bottom-R.top.y;
   R.navTop={x:R.navX,y:top0,w:R.navW,h:M.navTopH};
-  R.navLib={x:R.navX,y:top0+M.navTopH+gap,w:R.navW,h:topH-M.navTopH-gap};
+  R.navLib={x:R.navX,y:top0+M.navTopH+g,w:R.navW,h:topH-M.navTopH-g};
   R.main={x:R.mainX,y:top0,w:R.mainW,h:topH};
   R.queue={x:R.queueX,y:top0,w:R.queueW,h:topH};
   // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
