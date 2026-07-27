@@ -662,7 +662,11 @@ function roundPanel(gr,x,y,w,h){
   gr.DrawImage(CORN.bl,x,y+h-rad,rad,rad,0,0,rad,rad,0,255);
   gr.DrawImage(CORN.br,x+w-rad,y+h-rad,rad,rad,0,0,rad,rad,0,255);
 }
-function roundNav(gr){ roundPanel(gr,R.navTop.x,R.navTop.y,R.navTop.w,R.navTop.h); roundPanel(gr,R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
+function roundTop(gr,x,y,w){   // carve only the top corners (where square gradient/band overrides panelBg rounding)
+  var rad=M.radius; if(!CORN) CORN=buildCorners(rad);
+  gr.DrawImage(CORN.tl,x,y,rad,rad,0,0,rad,rad,0,255);
+  gr.DrawImage(CORN.tr,x+w-rad,y,rad,rad,0,0,rad,rad,0,255);
+}
 
 // Themed context menu + delete-confirm overlay, painted on top of everything.
 function drawOverlays(gr){
@@ -723,18 +727,18 @@ function on_paint(gr){
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
     drawTitleBar(gr);
-    drawNav(gr); roundNav(gr);
-    drawMain(gr); roundPanel(gr,R.main.x,R.main.y,R.main.w,R.main.h);
-    drawQueue(gr); roundPanel(gr,R.queue.x,R.queue.y,R.queue.w,R.queue.h);
+    drawNav(gr);
+    drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w);
+    drawQueue(gr);
     drawBar(gr);
     drawOverlays(gr);
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
   if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
-  if(dirtyMain){ dirtyMain=false; drawMain(gr); roundPanel(gr,R.main.x,R.main.y,R.main.w,R.main.h); }
-  if(dirtyNav){ dirtyNav=false; drawNav(gr); roundNav(gr); }
-  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); roundPanel(gr,R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+  if(dirtyMain){ dirtyMain=false; drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); }
+  if(dirtyNav){ dirtyNav=false; drawNav(gr); }
+  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
   if(dirtyBar){ dirtyBar=false; drawBar(gr); }
 }
