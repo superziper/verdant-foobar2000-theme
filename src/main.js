@@ -32,7 +32,7 @@ var COL = {
   rowHover:RGBA(255,255,255,18), rowActive:RGBA(255,255,255,38),
   line:RGBA(255,255,255,28), seekbg:RGB(77,77,77)
 };
-var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:104, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
+var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:84, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
 /* ------------------------- fonts (create once) -------------------------
@@ -622,7 +622,7 @@ function layout(){
   R.mainX=R.navX+R.navW+g; R.mainW=R.queueX-g-R.mainX;
   var topH=R.top.bottom-R.top.y;
   R.navTop={x:R.navX,y:top0,w:R.navW,h:M.navTopH};
-  R.navLib={x:R.navX,y:top0+M.navTopH+g,w:R.navW,h:topH-M.navTopH-g};
+  R.navLib={x:R.navX,y:top0+M.navTopH+g*2,w:R.navW,h:topH-M.navTopH-g*2};   // wider gap to the library card
   R.main={x:R.mainX,y:top0,w:R.mainW,h:topH};
   R.queue={x:R.queueX,y:top0,w:R.queueW,h:topH};
   // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
@@ -643,6 +643,26 @@ function repaintBar(){ if(fsMode){ repaintAll(); return; } dirtyBar=true; window
 
 /* ------------------------- paint ------------------------- */
 function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
+// Carve rounded corners over already-drawn (square) content: blit black corner masks (no clip API).
+var CORN=null;
+function buildCorners(rad){
+  var specs={tl:[0,0],tr:[-rad,0],bl:[0,-rad],br:[-rad,-rad]}, q={}, key;
+  for(key in specs){
+    var im=gdi.CreateImage(rad,rad), g=im.GetGraphics(); g.FillSolidRect(0,0,rad,rad,COL.black); im.ReleaseGraphics(g);
+    var mk=gdi.CreateImage(rad,rad), mg=mk.GetGraphics();
+    mg.FillSolidRect(0,0,rad,rad,RGB(0,0,0)); mg.SetSmoothingMode(2); mg.FillEllipse(specs[key][0],specs[key][1],rad*2,rad*2,RGB(255,255,255));
+    mk.ReleaseGraphics(mg); im.ApplyMask(mk); q[key]=im;
+  }
+  return q;
+}
+function roundPanel(gr,x,y,w,h){
+  var rad=M.radius; if(!CORN) CORN=buildCorners(rad);
+  gr.DrawImage(CORN.tl,x,y,rad,rad,0,0,rad,rad,0,255);
+  gr.DrawImage(CORN.tr,x+w-rad,y,rad,rad,0,0,rad,rad,0,255);
+  gr.DrawImage(CORN.bl,x,y+h-rad,rad,rad,0,0,rad,rad,0,255);
+  gr.DrawImage(CORN.br,x+w-rad,y+h-rad,rad,rad,0,0,rad,rad,0,255);
+}
+function roundNav(gr){ roundPanel(gr,R.navTop.x,R.navTop.y,R.navTop.w,R.navTop.h); roundPanel(gr,R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
 
 // Themed context menu + delete-confirm overlay, painted on top of everything.
 function drawOverlays(gr){
@@ -703,18 +723,18 @@ function on_paint(gr){
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
     drawTitleBar(gr);
-    drawNav(gr);
-    drawMain(gr);
-    drawQueue(gr);
+    drawNav(gr); roundNav(gr);
+    drawMain(gr); roundPanel(gr,R.main.x,R.main.y,R.main.w,R.main.h);
+    drawQueue(gr); roundPanel(gr,R.queue.x,R.queue.y,R.queue.w,R.queue.h);
     drawBar(gr);
     drawOverlays(gr);
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
   if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
-  if(dirtyMain){ dirtyMain=false; drawMain(gr); }
-  if(dirtyNav){ dirtyNav=false; drawNav(gr); }
-  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
+  if(dirtyMain){ dirtyMain=false; drawMain(gr); roundPanel(gr,R.main.x,R.main.y,R.main.w,R.main.h); }
+  if(dirtyNav){ dirtyNav=false; drawNav(gr); roundNav(gr); }
+  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); roundPanel(gr,R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
   if(dirtyBar){ dirtyBar=false; drawBar(gr); }
 }
