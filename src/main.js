@@ -701,7 +701,7 @@ function on_paint(gr){
   if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
     dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false;
     HB_DOTS=[];
-    gr.FillSolidRect(0,0,W,H,COL.base);   // Spotify's real bg (#121212); no base-vs-black seam behind panels
+    gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
     drawTitleBar(gr);
     drawNav(gr);
     drawMain(gr);
@@ -865,7 +865,7 @@ function drawPlaylist(gr,r){
   }
   // crop the partial rows top & bottom, then draw the sticky column header on top
   gr.FillSolidRect(r.x,rowsTop-rh,r.w,rh,COL.base);
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
@@ -921,7 +921,7 @@ function drawHome(gr,r){
     if(ay+cardH<=gy) continue;
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
   }
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.base);              // crop below the grid
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel              // crop below the grid
 
   // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
   gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);                 // clear the whole band above the grid viewport
@@ -932,7 +932,7 @@ function drawHome(gr,r){
     var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;
     drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
   }
-  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.base);
+  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.black);   // gap between shelf and queue
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll*(scardW+gap),HOME_PLMAX*(scardW+gap),w,pls.length*(scardW+gap),hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
