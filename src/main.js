@@ -32,7 +32,7 @@ var COL = {
   rowHover:RGBA(255,255,255,18), rowActive:RGBA(255,255,255,38),
   line:RGBA(255,255,255,28), seekbg:RGB(77,77,77)
 };
-var M = { pad:8, gap:8, navW:230, queueW:400, barH:80, navTopH:104, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
+var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:104, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
 /* ------------------------- fonts (create once) -------------------------
@@ -47,7 +47,7 @@ var FONT = {
   eyebrow:F(11,1), title:F(52,1), meta:F(13,0),
   rowTitle:F(14,0), rowArtist:F(12,0), rowNum:F(13,0), rowCell:F(13,0), head:F(12,1),
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
-  npTitle:F(13,0), npArtist:F(11,0), time:F(11,0), prefs:F(11,0), glyph:F(15,0)
+  npTitle:F(15,0), npArtist:F(12,0), time:F(12,0), prefs:F(11,0), glyph:F(15,0)
 };
 FONT.icon = gf('Segoe MDL2 Assets',15);
 FONT.iconBtn = gf('Segoe MDL2 Assets',18);
@@ -1121,9 +1121,10 @@ function drawQueue(gr){
 }
 TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
 
-function ctrlBtn(gr,name,cx,cyc,active,act){
-  drawIcon(gr,name,active?COL.green:(hv(cx-18,cyc-18,cx+18,cyc+18)?COL.text:COL.text2),cx-18,cyc-18,36,36,22);
-  HB_CTRL.push({x0:cx-18,y0:cyc-18,x1:cx+18,y1:cyc+18,act:act});
+function ctrlBtn(gr,name,cx,cyc,active,act,rad,isz){
+  rad=rad||18; isz=isz||22;
+  drawIcon(gr,name,active?COL.green:(hv(cx-rad,cyc-rad,cx+rad,cyc+rad)?COL.text:COL.text2),cx-rad,cyc-rad,rad*2,rad*2,isz);
+  HB_CTRL.push({x0:cx-rad,y0:cyc-rad,x1:cx+rad,y1:cyc+rad,act:act});
 }
 function drawBar(gr){
   HB_CTRL=[];
@@ -1131,40 +1132,40 @@ function drawBar(gr){
   gr.FillSolidRect(0,by,W,M.barH,COL.black);
   var np=fb.IsPlaying||fb.IsPaused, playing=np&&fb.IsPlaying&&!fb.IsPaused;
   // left: cover + title/artist
-  var cs=56, cx=14, cy=by+(M.barH-cs)/2;
-  drawCover(gr,cx,cy,cs,4,NP,'np');
-  var tx=cx+cs+12;
-  tL(gr,npTitleStr,FONT.npTitle,COL.text,tx,by+22,220,18);
-  tL(gr,npArtistStr,FONT.npArtist,COL.text2,tx,by+42,220,16);
+  var cs=64, cx=16, cy=by+(M.barH-cs)/2;
+  drawCover(gr,cx,cy,cs,5,NP,'np');
+  var tx=cx+cs+14;
+  tL(gr,npTitleStr,FONT.npTitle,COL.text,tx,by+26,260,20);
+  tL(gr,npArtistStr,FONT.npArtist,COL.text2,tx,by+50,260,18);
   // center: transport row + seekbar
   var cxC=Math.round(W/2);
-  var pcy=by+25, phv=hv(cxC-22,by+4,cxC+22,by+46), pb=phv?42:38, pbx=cxC-pb/2, pby=pcy-pb/2;
+  var pcy=by+34, pb=hv(cxC-27,by+7,cxC+27,by+61)?52:48, pbx=cxC-pb/2, pby=pcy-pb/2;
   var shufOn=pbShuffle, repMode=pbRepeat;
-  ctrlBtn(gr,'shuffle',cxC-92,pcy,shufOn,'shuffle');
-  ctrlBtn(gr,'prev',cxC-50,pcy,false,'prev');
+  ctrlBtn(gr,'shuffle',cxC-108,pcy,shufOn,'shuffle',22,26);
+  ctrlBtn(gr,'prev',cxC-58,pcy,false,'prev',22,26);
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
   drawIcon(gr,playing?'pause':'play',COL.black,pbx,pby,pb,pb,Math.round(pb*0.5));
   HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
-  ctrlBtn(gr,'next',cxC+50,pcy,false,'next');
-  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+92,pcy,repMode>0,'repeat');
-  var sbW=Math.min(Math.round(W*0.34),520), sbX=cxC-sbW/2, sbY=by+54;
+  ctrlBtn(gr,'next',cxC+58,pcy,false,'next',22,26);
+  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+108,pcy,repMode>0,'repeat',22,26);
+  var sbW=Math.min(Math.round(W*0.36),560), sbX=cxC-sbW/2, sbY=by+74;
   var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
-  gr.FillSolidRect(sbX,sbY,sbW,4,COL.seekbg);
-  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
-  tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-48,sbY-6,42,16);
-  tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,42,16);
-  HB_SEEK={x0:sbX,y0:sbY-9,x1:sbX+sbW,y1:sbY+13,x:sbX,w:sbW};
-  // right: volume (Preferences now lives in the File/Library menu up top)
+  gr.FillSolidRect(sbX,sbY,sbW,5,COL.seekbg);
+  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),5,COL.text);
+  tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-54,sbY-7,46,17);
+  tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+10,sbY-7,46,17);
+  HB_SEEK={x0:sbX,y0:sbY-10,x1:sbX+sbW,y1:sbY+15,x:sbX,w:sbW};
+  // right: volume + fullscreen
   var gearC=by+M.barH/2;
-  var fsx=W-40;   // enter-fullscreen button, far right
-  drawIcon(gr,'expand',hv(fsx-6,gearC-14,fsx+26,gearC+14)?COL.text:COL.text2,fsx,gearC-12,24,24,20);
-  HB_CTRL.push({x0:fsx-6,y0:gearC-14,x1:fsx+26,y1:gearC+14,act:'fullscreen'});
-  var volW=92, volX=fsx-20-volW, volY=gearC-2;
-  drawIcon(gr,'volume',COL.text2,volX-28,gearC-12,24,24,20);
+  var fsx=W-46;   // enter-fullscreen button, far right
+  drawIcon(gr,'expand',hv(fsx-8,gearC-16,fsx+30,gearC+16)?COL.text:COL.text2,fsx,gearC-13,26,26,22);
+  HB_CTRL.push({x0:fsx-8,y0:gearC-16,x1:fsx+30,y1:gearC+16,act:'fullscreen'});
+  var volW=104, volX=fsx-24-volW, volY=gearC-2;
+  drawIcon(gr,'volume',COL.text2,volX-32,gearC-13,26,26,22);
   var vp=clamp01(vol2pos(fb.Volume));
-  gr.FillSolidRect(volX,volY,volW,4,COL.seekbg);
-  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
-  HB_VOL={x0:volX,y0:volY-9,x1:volX+volW,y1:volY+13,x:volX,w:volW};
+  gr.FillSolidRect(volX,volY,volW,5,COL.seekbg);
+  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),5,COL.text);
+  HB_VOL={x0:volX,y0:volY-10,x1:volX+volW,y1:volY+15,x:volX,w:volW};
 }
 
 /* ------------------------- fullscreen "chill" mode ------------------------- */
