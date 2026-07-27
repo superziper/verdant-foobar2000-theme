@@ -519,7 +519,7 @@ var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (arti
 /* ------------------------- custom shuffle engine ------------------------- */
 // Shuffle plays from a hidden shuffled copy so the "next up" list is the real order.
 // Reshuffles every time shuffle is toggled on / a playlist is started while shuffle is on.
-var SHUF='__spotify_shuffle__', shufSrcName='';   // shufSrcName = the real playlist we shuffled from
+var SHUF='__spotify_shuffle__', shufSrcName='', lastShufIdx=-1;   // shufSrcName = the real playlist we shuffled from
 function isHiddenPl(nm){ return nm===ROUTE || nm===SHUF; }
 function playlistOfName(nm){ for(var i=0;i<plman.PlaylistCount;i++) if(plman.GetPlaylistName(i)===nm) return i; return -1; }
 function handleArray(pi){ var it=getItems(pi), a=[]; if(it){ for(var i=0;i<it.Count;i++) a.push(it[i]); } return a; }
@@ -539,6 +539,19 @@ function playShuffled(pi,startHandle,name,preservePos){   // build hidden shuffl
   plman.ExecutePlaylistDefaultAction(pl,0);
   try{ plman.ActivePlaylist=savedActive; }catch(e){}   // keep the user's viewed playlist, not the hidden one
   if(preservePos && wasActive && pos>0){ try{ fb.PlaybackTime=pos; }catch(e){} }
+  lastShufIdx=0; invalidateItems();
+}
+// On loop-around, reshuffle the upcoming tracks so the next pass differs. Reorders the hidden
+// SHUF playlist in place (keeps the currently-playing item 0, no restart).
+function reshuffleTail(shufPi){
+  var it=getItems(shufPi), n=it.Count; if(n<=2) return;
+  var tail=[], i; for(i=1;i<n;i++) tail.push(it[i]);
+  shuffleArr(tail);
+  plman.ClearPlaylistSelection(shufPi);
+  for(i=1;i<n;i++) plman.SetPlaylistSelectionSingle(shufPi,i,true);
+  plman.RemovePlaylistSelection(shufPi);
+  var hl=fb.CreateHandleList(); for(i=0;i<tail.length;i++) hl.Add(tail[i]);
+  plman.InsertPlaylistItems(shufPi,1,hl,false);
   invalidateItems();
 }
 function shuffleEnterFromCurrent(){   // toggled shuffle ON mid-playback -> reshuffle the current source, keep current track
@@ -1074,6 +1087,16 @@ function drawQueue(gr){
     }
     qy+=10;
   }
+  // loop-one: playback just repeats the current song, so show only that
+  if(pbRepeat===2){
+    if(NP && qy+rh+30<bottom){
+      tL(gr,'Repeating this song',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
+      drawCover(gr,x,qy,44,4,NP,'np');
+      tL(gr,npTitleStr,FONT.qName,COL.green,x+56,qy+5,r.w-36-56,18);
+      tL(gr,npArtistStr,FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+    }
+    return;
+  }
   // "Next up" from the playing playlist
   var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
@@ -1554,7 +1577,20 @@ function on_library_items_removed(){ artistList=null; artistTracksMap=null; arti
 function on_library_items_changed(){ artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null; repaintAll(); }
 
 /* ------------------------- playback callbacks ------------------------- */
-function on_playback_new_track(){ updateNP(); repaintAll(); }
+function on_playback_new_track(){
+  updateNP();
+  // shuffle + loop-all: when playback wraps from the last shuffled track back to the first, reshuffle the rest
+  if(pbShuffle){
+    var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+    var sp=playlistOfName(SHUF), idx=(loc&&loc.IsValid&&loc.PlaylistIndex===sp)?loc.PlaylistItemIndex:-1;
+    if(sp>=0 && idx>=0){
+      var cnt=plman.PlaylistItemCount(sp);
+      if(pbRepeat===1 && lastShufIdx===cnt-1 && idx===0) reshuffleTail(sp);
+      lastShufIdx=idx;
+    } else lastShufIdx=-1;
+  } else lastShufIdx=-1;
+  repaintAll();
+}
 function on_playback_dynamic_info_track(){ updateNP(); repaintAll(); }
 function on_playback_stop(){ updateNP(); repaintAll(); }
 function on_playback_pause(){ updateNP(); repaintAll(); }
