@@ -1060,9 +1060,6 @@ function drawQueue(gr){
   qy+=70;
 
   var rh=56, bottom=r.y+r.h-8, shown=0, qi;
-  // playback-mode indicators (update the instant you toggle shuffle / repeat)
-  drawIcon(gr,'shuffle',pbShuffle?COL.green:COL.text3,r.x+r.w-40,qy,22,24,18);
-  drawIcon(gr,pbRepeat===2?'repeat1':'repeat',pbRepeat>0?COL.green:COL.text3,r.x+r.w-70,qy,22,24,18);
   // real manual queue (explicitly-queued tracks) first, if any
   var mq=null; try{ mq=plman.GetPlaybackQueueHandles(); }catch(e){ mq=null; }
   if(mq && mq.Count){
