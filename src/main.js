@@ -60,6 +60,7 @@ FONT.searchIco = gf('Segoe MDL2 Assets',15);
 FONT.lyric = gf('Segoe UI',18,1);
 FONT.fsLyric = gf('Segoe UI',30,1);
 FONT.fsSrc = gf('Segoe UI Semibold',13,0);
+FONT.fsSrcName = gf('Segoe UI',13,1);   // bold: the actual playlist name, vs. the plain-weight fixed caption
 FONT.lyricCur = gf('Segoe UI',23,1);
 var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
 GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
@@ -97,6 +98,7 @@ var DT_C = 0x1|0x4|0x20|0x800;           // center + vcenter + singleline + nopr
 function tL(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_L); }
 function tR(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_R); }
 function tC(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C); }
+function tCE(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C|0x8000); }   // centered, ellipsized
 
 /* ------------------------- vector icons (SVG rasterized via gdi.LoadSVG, tinted + cached) ------------------------- */
 var ICONS={
@@ -455,7 +457,7 @@ function roundMask(size,rad){
   m.ReleaseGraphics(g); maskCache[k]=m; return m;
 }
 function maskedArt(h,seed,size,mask,tag){
-  var k=(seed||'')+'|'+size+'|'+tag;
+  var k=(h?albKey(h):(seed||''))+'|'+size+'|'+tag;   // keyed by actual album, not just the caller's seed label (seed alone is constant e.g. 'np' for now-playing, which would cache stale art across track changes)
   if(cArtCache.hasOwnProperty(k)) return cArtCache[k];
   var art=h?getArt(h):null;
   if(h && !artLoaded(albKey(h))) return null;   // still loading -> placeholder, don't cache
@@ -789,10 +791,7 @@ function addFolderToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.Ac
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
-var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[], fsBgCache={key:null,img:null};
-var vizStyle='bars', vizMenuOpen=false, VIZ_MENU_HB=[], vizWave=[];
-var VIZ_STYLES=[['Bars','bars'],['Mirrored','mirror'],['Waveform','wave'],['Radial','radial']];
-function vizStyleLabel(){ for(var i=0;i<VIZ_STYLES.length;i++) if(VIZ_STYLES[i][1]===vizStyle) return VIZ_STYLES[i][0]; return 'Bars'; }
+var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
 // Keyboard capture on only in Search view. Re-asserted every full paint + on_size
 // because JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
@@ -1824,13 +1823,12 @@ function drawBar(gr){
 
 /* ------------------------- fullscreen "chill" mode ------------------------- */
 function enterFullscreen(){ fsMode=true; try{ if(UIWizard && UIWizard.WindowState!==1) UIWizard.ToggleMaximize(); }catch(e){} if(fsView==='viz') startViz(); if(fsView==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
-function exitFullscreen(){ fsMode=false; vizMenuOpen=false; stopViz(); repaintAll(); }
-function setFsView(v){ fsView=v; vizMenuOpen=false; if(v==='viz') startViz(); else stopViz(); if(v==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
+function exitFullscreen(){ fsMode=false; stopViz(); repaintAll(); }
+function setFsView(v){ fsView=v; if(v==='viz') startViz(); else stopViz(); if(v==='lyrics'){ loadLyrics(); lySnap=true; } repaintAll(); }
 function doFsAct(act){
   if(act==='exit') exitFullscreen();
-  else if(act==='lyrics'){ vizMenuOpen=false; setFsView(fsView==='lyrics'?'default':'lyrics'); }
-  else if(act==='viz'){ vizMenuOpen=false; setFsView(fsView==='viz'?'default':'viz'); }
-  else if(act==='vizmenu'){ vizMenuOpen=!vizMenuOpen; repaintAll(); }
+  else if(act==='lyrics') setFsView(fsView==='lyrics'?'default':'lyrics');
+  else if(act==='viz') setFsView(fsView==='viz'?'default':'viz');
 }
 // ---- audio spectrum visualizer (real PCM via fb.GetAudioChunk -> FFT bars) ----
 var VIZ_N=56;
@@ -1841,9 +1839,7 @@ function vizUpdate(){
     var ch=fb.GetAudioChunk(0.06);
     if(ch && ch.SampleCount>0){
       var d=ch.Data, cc=ch.ChannelCount||2, sc=ch.SampleCount, step=Math.max(1,Math.floor(sc/N));
-      var wv=[];
-      for(i=0;i<N;i++){ var si=(i*step)*cc, v=0; if(si<d.length){ for(var c=0;c<cc;c++) v+=d[si+c]||0; v/=cc; } wv[i]=v; var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); re[i]=v*w; im[i]=0; }
-      vizWave=wv;   // raw mono for the waveform style
+      for(i=0;i<N;i++){ var si=(i*step)*cc, v=0; if(si<d.length){ for(var c=0;c<cc;c++) v+=d[si+c]||0; v/=cc; } var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); re[i]=v*w; im[i]=0; }
       ok=true;
     }
   }catch(e){ ok=false; }
@@ -1865,108 +1861,60 @@ function fftMag(re,im,n){
 }
 function startViz(){ if(!vizTimer){ vizTimer=window.SetInterval(vizUpdate,45); } }
 function stopViz(){ if(vizTimer){ window.ClearInterval(vizTimer); vizTimer=null; } }
-// darkened, cover-fit album background (cached per art+size)
-function fsBg(gr){
-  var art=getArt(NP), key=(art?albKey(NP):'none')+'|'+W+'x'+H;
-  if(fsBgCache.key!==key){
-    var bmp=null;
-    try{
-      bmp=gdi.CreateImage(W,H); var g=bmp.GetGraphics();
-      if(art){ var s=Math.max(W/art.Width,H/art.Height), dw=art.Width*s, dh=art.Height*s; g.DrawImage(art,Math.round((W-dw)/2),Math.round((H-dh)/2),Math.round(dw),Math.round(dh),0,0,art.Width,art.Height); g.FillSolidRect(0,0,W,H,RGBA(0,0,0,150)); }
-      else { g.FillSolidRect(0,0,W,H,RGB(28,28,34)); }
-      g.FillGradRect(0,H-320,W,320,90,RGBA(0,0,0,0),RGBA(0,0,0,150),1.0);
-      bmp.ReleaseGraphics(g);
-    }catch(e){ bmp=null; }
-    fsBgCache={key:key,img:bmp};
-  }
-  if(fsBgCache.img) gr.DrawImage(fsBgCache.img,0,0,W,H,0,0,fsBgCache.img.Width,fsBgCache.img.Height);
-  else gr.FillSolidRect(0,0,W,H,RGB(24,24,28));
-}
+// plain dark background (no album art)
+function fsBg(gr){ gr.FillSolidRect(0,0,W,H,COL.base); }
 function fsIcon(gr,name,col,x,y,sz,act){
   drawIcon(gr,name,hv(x-8,y-8,x+sz+8,y+sz+8)?COL.text:col,x,y,sz,sz,sz);
   HB_FS.push({x0:x-8,y0:y-8,x1:x+sz+8,y1:y+sz+8,act:act});
 }
-function fsMiniNP(gr){   // small cover + title + artist, top-left (lyrics/viz views)
-  var s=64;
-  drawRounded(gr,64,48,s,6,NP,'np');
-  tL(gr,npTitleStr||'Nothing playing',FONT.sect2,COL.text,64+s+18,54,W/2,26);
-  tL(gr,npArtistStr,FONT.qName,COL.text2,64+s+18,86,W/2,20);
+// name of the real playlist currently driving playback, or null (e.g. playing from library/search/artist page)
+function npPlaylistSrc(){
+  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null, pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
+  if(pli<0) return null;
+  var rnm=plman.GetPlaylistName(pli);
+  if(rnm===SHUF) return shufSrcName||null;
+  if(rnm && !isHiddenPl(rnm)) return rnm;
+  return null;
 }
+function fsMiniNP(gr){   // small cover + title + artist, top-left (lyrics/viz views)
+  var s=64, src=npPlaylistSrc();
+  if(src){
+    var lbl='PLAYING FROM PLAYLIST  ';
+    tL(gr,lbl,FONT.fsSrc,COL.text3,64,20,W/2,20);   // dim: fixed caption
+    var lw=gr.CalcTextWidth(lbl,FONT.fsSrc);
+    tL(gr,src,FONT.fsSrcName,COL.text,64+lw,20,Math.max(0,W/2-lw),20);   // bold + brightest: actual playlist name
+  }
+  drawRounded(gr,64,78,s,6,NP,'np');
+  tL(gr,npTitleStr||'Nothing playing',FONT.sect2,COL.text,64+s+18,84,W/2,26);
+  tL(gr,npArtistStr,FONT.qName,COL.text2,64+s+18,116,W/2,20);
+}
+// cover + title + artist stacked and centred in the space between the header and the transport bar
 function drawFsDefault(gr,bot){
-  var sz=Math.min(360,Math.round(H*0.36)), ax=72, ay=bot-sz;
-  drawRounded(gr,ax,ay,sz,12,NP,'np');
-  var tx=ax+sz+40, tw=W-tx-72;
-  tL(gr,npTitleStr||'Nothing playing',FONT.title,COL.text,tx,ay+sz-150,tw,90);
-  tL(gr,npArtistStr,FONT.sect2,COL.text2,tx,ay+sz-46,tw,32);
+  var top=120, avail=bot-top, txtH=130, gap=30;
+  var sz=Math.max(140,Math.min(420,avail-txtH-gap));
+  var y0=top+Math.max(0,Math.round((avail-(sz+gap+txtH))/2));
+  drawRounded(gr,Math.round((W-sz)/2),y0,sz,12,NP,'np');
+  var tx=72, tw=W-144, ty=y0+sz+gap;
+  tCE(gr,npTitleStr||'Nothing playing',FONT.title,COL.text,tx,ty,tw,90);
+  tCE(gr,npArtistStr,FONT.sect2,COL.text2,tx,ty+96,tw,34);
 }
 function drawFsLyrics(gr,bot){
   fsMiniNP(gr);
   loadLyrics();   // reload for the current track (fast: cached by track; reloads on track change)
   if(!lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length){ tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,Math.round(H*0.45),W,40); return; }
-  if(lyrics.synced) drawRollingLyrics(gr,140,150,W-280,bot,FONT.fsLyric,COL.green,'c');
-  else { stopLyAnim(); var L=lyLayout(gr,W-280,FONT.fsLyric), yy=170, s; for(var li=0;li<lyrics.lines.length;li++){ var p=L.subs[li]; for(s=0;s<p.length&&yy+L.subLh<=bot;s++){ tC(gr,p[s],FONT.fsLyric,COL.text2,140,yy,W-280,L.subLh); yy+=L.subLh; } yy+=Math.round(L.subLh*0.4); if(yy>=bot) break; } }
+  if(lyrics.synced) drawRollingLyrics(gr,140,165,W-280,bot,FONT.fsLyric,COL.green,'c');
+  else { stopLyAnim(); var L=lyLayout(gr,W-280,FONT.fsLyric), yy=180, s; for(var li=0;li<lyrics.lines.length;li++){ var p=L.subs[li]; for(s=0;s<p.length&&yy+L.subLh<=bot;s++){ tC(gr,p[s],FONT.fsLyric,COL.text2,140,yy,W-280,L.subLh); yy+=L.subLh; } yy+=Math.round(L.subLh*0.4); if(yy>=bot) break; } }
 }
-function withA(c,a){ return ((a&0xff)<<24)|(c&0xffffff); }
+// mirrored pill bars in the theme's Spotify green -- deeper green when quiet, brighter at peaks
 function drawFsViz(gr,bot){
   fsMiniNP(gr);
   var top=200, cy=Math.round((top+bot)/2), n=VIZ_N, i;
-  var hue=artHue(NP,'np');
-  var cBot=COL.green, cTop=blend(blend(COL.green,COL.text,0.55),hue,0.20);   // bright, lightly album-tinted
-  var gLow=withA(COL.green,70), gZero=withA(COL.green,0);
-  if(vizStyle==='wave'){
-    var pts=vizWave.length?vizWave:[], amp=(bot-top)/2-16, px=150, pw=W-300, m=Math.max(1,pts.length-1), xs=[], ys=[], k;
-    for(k=0;k<pts.length;k++){ xs[k]=px+Math.round(pw*k/m); ys[k]=cy-Math.round(Math.max(-1,Math.min(1,pts[k]))*amp); }
-    for(k=0;k<pts.length;k++){ var hgt=Math.abs(ys[k]-cy); if(hgt>1) gr.FillSolidRect(xs[k],Math.min(ys[k],cy),2,hgt,withA(COL.green,24)); }   // soft body
-    var pass=[[8,withA(cTop,38)],[4,withA(cTop,110)],[2,cTop]];                          // glow -> bright line
-    for(var pp=0;pp<pass.length;pp++){ for(k=1;k<pts.length;k++) gr.DrawLine(xs[k-1],ys[k-1],xs[k],ys[k],pass[pp][0],pass[pp][1]); }
-    if(!pts.length) gr.DrawLine(px,cy,px+pw,cy,2,cTop);
-  } else if(vizStyle==='radial'){
-    var ccx=Math.round(W/2), ccy=cy, R=Math.round(Math.min(bot-top,W*0.42)/2-24), maxLen=Math.round(R*0.85);
-    for(i=0;i<n;i++){
-      var vv=vizBars[i]||0, ang=(i/n)*Math.PI*2-Math.PI/2, ln=10+vv*maxLen;
-      var ix=ccx+Math.cos(ang)*R, iy=ccy+Math.sin(ang)*R, ox=ccx+Math.cos(ang)*(R+ln), oy=ccy+Math.sin(ang)*(R+ln);
-      gr.DrawLine(ix,iy,ox,oy,6,withA(cTop,55));    // glow
-      gr.DrawLine(ix,iy,ox,oy,3,cTop);
-      gr.FillEllipse(ox-2.5,oy-2.5,5,5,cTop);        // rounded cap
-    }
-    drawCircle(gr,ccx-R+16,ccy-R+16,(R-16)*2,NP,'np');
-  } else {   // bars / mirror -- gradient bars, rounded caps, reflection
-    var mirror=(vizStyle==='mirror'), cell=(W-300)/n, bw=Math.max(4,Math.floor(cell*0.62)), gap=cell-bw, x0=Math.round((W-cell*n+gap)/2);
-    var hh=mirror?((bot-top)/2-18):(bot-top-16), baseY=mirror?cy:(bot-14);
-    for(i=0;i<n;i++){
-      var v2=vizBars[i]||0, bh=Math.max(3,Math.round(v2*hh)), bx=Math.round(x0+i*cell);
-      if(mirror){
-        gr.FillGradRect(bx,cy-bh,bw,bh,90,cTop,cBot,1.0);
-        gr.FillGradRect(bx,cy,bw,bh,90,cBot,cTop,1.0);
-        if(bh>=bw){ gr.FillEllipse(bx,cy-bh-bw/2,bw,bw,cTop); gr.FillEllipse(bx,cy+bh-bw/2,bw,bw,cTop); }
-      } else {
-        var byT=baseY-bh;
-        gr.FillGradRect(bx,byT,bw,bh,90,cTop,cBot,1.0);
-        if(bh>=bw) gr.FillEllipse(bx,byT-bw/2,bw,bw,cTop);
-        gr.FillGradRect(bx,baseY+3,bw,Math.round(bh*0.32),90,gLow,gZero,1.0);   // reflection
-      }
-    }
-  }
-  drawVizDropdown(gr);
-}
-// style-picker dropdown (top-right of the visualizer)
-function drawVizDropdown(gr){
-  VIZ_MENU_HB=[];
-  var bw=170, bh=38, bx=W-72-bw, by=52;
-  gr.FillRoundRect(bx,by,bw,bh,8,8,hv(bx,by,bx+bw,by+bh)?RGB(58,58,58):RGBA(0,0,0,90));
-  tL(gr,vizStyleLabel(),FONT.pl,COL.text,bx+16,by,bw-40,bh);
-  drawIcon(gr,'chevron',COL.text2,bx+bw-30,by+8,22,22,18);
-  HB_FS.push({x0:bx,y0:by,x1:bx+bw,y1:by+bh,act:'vizmenu'});
-  if(vizMenuOpen){
-    var iy=by+bh+6;
-    gr.FillSolidRect(bx+3,iy+4,bw,VIZ_STYLES.length*bh+10,RGBA(0,0,0,120));
-    gr.FillRoundRect(bx,iy,bw,VIZ_STYLES.length*bh+10,8,8,RGB(43,43,43));
-    for(var i=0;i<VIZ_STYLES.length;i++){
-      var r=iy+5+i*bh, on=(VIZ_STYLES[i][1]===vizStyle);
-      if(hv(bx,r,bx+bw,r+bh)) gr.FillRoundRect(bx+4,r,bw-8,bh,5,5,RGBA(255,255,255,20));
-      tL(gr,VIZ_STYLES[i][0],FONT.pl,on?COL.green:COL.text,bx+16,r,bw-24,bh);
-      VIZ_MENU_HB.push({x0:bx,y0:r,x1:bx+bw,y1:r+bh,style:VIZ_STYLES[i][1]});
-    }
+  var cell=(W-300)/n, bw=Math.max(4,Math.floor(cell*0.62)), gap=cell-bw, x0=Math.round((W-cell*n+gap)/2);
+  var hh=(bot-top)/2-18, peak=blend(COL.green,COL.text,0.22);
+  for(i=0;i<n;i++){
+    var v=vizBars[i]||0, bh=Math.max(2,Math.round(v*hh)), bx=Math.round(x0+i*cell);
+    var rad=Math.min(bw>>1,bh);   // GDI+ needs 2*rad <= both width and height, so floor -- never round
+    gr.FillRoundRect(bx,cy-bh,bw,bh*2,rad,rad,blend(COL.greenC,peak,clamp01(v*1.3)));
   }
 }
 function drawFsBar(gr){
@@ -1987,7 +1935,8 @@ function drawFsBar(gr){
   HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
   ctrlBtn(gr,'next',cxC+84,cy,false,'next');
   ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+150,cy,repMode>0,'repeat');
-  fsIcon(gr,'heart',COL.text2,72,cy-13,26,'like');
+  fsIcon(gr,'equalizer',fsView==='viz'?COL.green:COL.text2,72,cy-13,26,'viz');
+  fsIcon(gr,'mic',fsView==='lyrics'?COL.green:COL.text2,114,cy-13,26,'lyrics');
   var rx=W-72;
   fsIcon(gr,'compress',COL.text2,rx-26,cy-13,26,'exit');
   var volW=120, volX=rx-26-46-volW, volY=cy-2;
@@ -1996,8 +1945,6 @@ function drawFsBar(gr){
   gr.FillSolidRect(volX,volY,volW,4,RGBA(255,255,255,55));
   gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
   HB_VOL={x0:volX,y0:volY-10,x1:volX+volW,y1:volY+14,x:volX,w:volW};
-  fsIcon(gr,'equalizer',fsView==='viz'?COL.green:COL.text2,volX-116,cy-13,26,'viz');
-  fsIcon(gr,'mic',fsView==='lyrics'?COL.green:COL.text2,volX-74,cy-13,26,'lyrics');
 }
 function drawFullscreen(gr){
   HB_CTRL=[]; HB_SEEK=null; HB_VOL=null; HB_FS=[]; SB=null; SBH=null; SBN=null;
@@ -2006,11 +1953,8 @@ function drawFullscreen(gr){
   if(fsView==='lyrics') drawFsLyrics(gr,bot);
   else if(fsView==='viz') drawFsViz(gr,bot);
   else {
-    var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null, pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
-    var rnm=(pli>=0)?plman.GetPlaylistName(pli):'';
-    var src=(rnm===SHUF)?shufSrcName:((rnm&&!isHiddenPl(rnm))?rnm:'Your Library');
-    tL(gr,'PLAYING FROM PLAYLIST',FONT.fsSrc,COL.text2,72,54,W-144,18);
-    tL(gr,src,FONT.sect,COL.text,72,76,W-144,28);
+    var src=npPlaylistSrc();
+    if(src){ tL(gr,'PLAYING FROM PLAYLIST',FONT.fsSrc,COL.text2,72,54,W-144,18); tL(gr,src,FONT.sect,COL.text,72,76,W-144,28); }
     drawFsDefault(gr,bot);
   }
   drawFsBar(gr);
@@ -2135,11 +2079,6 @@ function on_mouse_lbtn_up(x,y){
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)){ plSortMenuOpen=true; repaintAll(); return; }
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)){ togglePlSortDir(); return; }
   if(fsMode){
-    if(vizMenuOpen){
-      var vm; for(vm=0;vm<VIZ_MENU_HB.length;vm++){ if(inRect(x,y,VIZ_MENU_HB[vm])){ vizStyle=VIZ_MENU_HB[vm].style; vizMenuOpen=false; repaintAll(); return; } }
-      var vb2; for(vb2=0;vb2<HB_FS.length;vb2++){ if(inRect(x,y,HB_FS[vb2]) && HB_FS[vb2].act==='vizmenu'){ vizMenuOpen=false; repaintAll(); return; } }
-      vizMenuOpen=false; repaintAll(); return;   // click elsewhere closes the dropdown
-    }
     var f2; for(f2=0;f2<HB_FS.length;f2++){ if(inRect(x,y,HB_FS[f2])){ doFsAct(HB_FS[f2].act); return; } }
     var c3; for(c3=0;c3<HB_CTRL.length;c3++){ if(inRect(x,y,HB_CTRL[c3])){ doCtrl(HB_CTRL[c3].act); return; } }
     return;
