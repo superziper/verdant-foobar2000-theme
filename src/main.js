@@ -682,6 +682,53 @@ function doDeletePlaylist(pl){
   if(wasShown || plman.PlaylistCount===0) view='home';   // don't strand the playlist view on a deleted list
   repaintAll();
 }
+/* ---- duplicate detection -------------------------------------------------------
+   Neither insert path lets us vet the incoming files first: DropTargetAction exposes
+   Playlist/Base write-only, and fb.AddFiles owns its own dialog and returns nothing.
+   So we snapshot the playlist before an insert we triggered, diff it once the items
+   land, and offer to drop the extra copies. Same end state, one step later. */
+var dupWatch=null, dupPrompt=null, DUP_HB=null;
+function trackKey(h){ return h ? (h.RawPath+'#'+h.SubSong).toLowerCase() : ''; }   // same file, same subsong
+function armDupWatch(pl){
+  if(pl<0 || pl>=plman.PlaylistCount){ dupWatch=null; return; }
+  var it=getItems(pl), before={}, i, k;
+  for(i=0;i<it.Count;i++){ k=trackKey(it[i]); before[k]=(before[k]||0)+1; }
+  dupWatch={pl:pl, before:before, timer:null};
+}
+function scheduleDupScan(){
+  if(dupWatch.timer) window.ClearTimeout(dupWatch.timer);
+  dupWatch.timer=window.SetTimeout(runDupScan,350);   // inserts arrive in batches; wait for them to settle
+}
+function runDupScan(){
+  var w=dupWatch; dupWatch=null;
+  if(!w || w.pl>=plman.PlaylistCount) return;
+  var it=getItems(w.pl), seen={}, idx=[], i, k, allow;   // same cached list getMeta indexes, so idx lines up
+  for(i=0;i<it.Count;i++){
+    k=trackKey(it[i]); seen[k]=(seen[k]||0)+1;
+    allow=w.before[k]||0; if(!allow) allow=1;   // a song new to this playlist may stay once
+    if(seen[k]>allow) idx.push(i);              // every copy beyond that is a duplicate we just introduced
+  }
+  if(!idx.length) return;                       // note: pre-existing duplicates are left alone
+  var meta=getMeta(w.pl), rows=[];
+  for(i=0;i<idx.length;i++) rows.push({t:meta.title[idx[i]]||'', a:meta.artist[idx[i]]||''});
+  dupPrompt={pl:w.pl, name:plman.GetPlaylistName(w.pl), idx:idx, rows:rows};
+  repaintAll();
+}
+function canRemoveFrom(pl){
+  try{ return plman.GetPlaylistLockedActions(pl).indexOf('RemoveItems')<0; }catch(e){ return true; }
+}
+function dupSkip(){
+  var d=dupPrompt; dupPrompt=null;
+  if(d && d.pl<plman.PlaylistCount && canRemoveFrom(d.pl)){
+    plman.UndoBackup(d.pl);
+    plman.ClearPlaylistSelection(d.pl);
+    for(var i=0;i<d.idx.length;i++) plman.SetPlaylistSelectionSingle(d.pl,d.idx[i],true);
+    plman.RemovePlaylistSelection(d.pl);   // one call, so the shifting indices never matter
+    invalidateItems();
+  }
+  repaintAll();
+}
+function dupKeep(){ dupPrompt=null; repaintAll(); }
 // small hover "..." button; records a HB_DOTS target that opens the menu just below it
 function drawDots(gr,cx,cy,pl){
   if(hv(cx,cy,cx+24,cy+24)) gr.FillEllipse(cx,cy,24,24,RGBA(255,255,255,26));
@@ -735,8 +782,8 @@ function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, n
 // Native multi-select pickers. fb.AddFiles/AddDirectory take no arguments and always target the
 // ACTIVE playlist, so point it at the destination first. (utils.FilePicker is single-select only.)
 // The insert is async; on_playlist_items_added already invalidates the caches and repaints.
-function addFilesToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; fb.AddFiles(); }
-function addFolderToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; fb.AddDirectory(); }
+function addFilesToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; armDupWatch(i); fb.AddFiles(); }
+function addFolderToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; armDupWatch(i); fb.AddDirectory(); }
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
@@ -953,12 +1000,41 @@ function drawOverlays(gr){
     tC(gr,'Delete',FONT.pl,COL.text,dx,by,bw,bh);
     CONF_HB={cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},del:{x0:dx,y0:by,x1:dx+bw,y1:by+bh}};
   }
+  if(dupPrompt) drawDupPrompt(gr);
+}
+// "these are already in the playlist" warning, listing what was just added twice
+function drawDupPrompt(gr){
+  var n=dupPrompt.idx.length, lh=26;
+  var fit=Math.max(1,Math.floor((H-260)/lh));            // never taller than the window
+  var show=Math.min(n,6,fit), more=n-show;
+  var cw=Math.min(480,W-40), ch=188+show*lh+(more>0?22:0);
+  var cx=Math.round((W-cw)/2), cy=Math.max(10,Math.round((H-ch)/2));
+  gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));             // dim backdrop (modal)
+  gr.FillSolidRect(cx+4,cy+6,cw,ch,RGBA(0,0,0,140));
+  gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
+  var px=cx+28, pw=cw-56, y=cy+24;
+  tL(gr,n===1?'1 song is already here':(n+' songs are already here'),FONT.sect,COL.text,px,y,pw,26); y+=34;
+  tL(gr,'Already in "'+dupPrompt.name+'":',FONT.pl,COL.text2,px,y,pw,22); y+=30;
+  var tw=Math.round(pw*0.58), ax=px+tw+10, aw=pw-tw-10;
+  for(var i=0;i<show;i++){
+    tL(gr,dupPrompt.rows[i].t,FONT.rowTitle,COL.text,px,y,tw,20);
+    tL(gr,dupPrompt.rows[i].a,FONT.rowArtist,COL.text2,ax,y+1,aw,18);
+    y+=lh;
+  }
+  if(more>0){ tL(gr,'and '+more+' more',FONT.plSub,COL.text3,px,y,pw,20); y+=22; }
+  var w2=pillW(gr,'Skip duplicates'), w1=pillW(gr,'Add anyway'), gap=12;
+  var by=cy+ch-22-PILL_H, x2=cx+cw-28-w2, x1=x2-gap-w1;
+  DUP_HB={ keep:drawPill(gr,x1,by,w1,'Add anyway',false), skip:drawPill(gr,x2,by,w2,'Skip duplicates',true) };
 }
 function on_paint(gr){
   gr.SetSmoothingMode(2);
   if(fsMode){ dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false; HB_DOTS=[]; drawFullscreen(gr); return; }
   var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav;
-  if(dirtyAll || !anyPartial){          // full paint, or an OS/stale paint we can't scope -> repaint everything
+  // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over
+  // the region it redraws -- the bar's 1 Hz playback repaint would flash back to full brightness.
+  // While any overlay owns the screen, every paint goes through the full path.
+  var modal=renameEdit||ctxMenu||confirmDel||dupPrompt;
+  if(dirtyAll || !anyPartial || modal){ // full paint, or an OS/stale paint we can't scope -> repaint everything
     dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false;
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
@@ -1879,7 +1955,7 @@ function drawFullscreen(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||dupPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -1887,7 +1963,7 @@ function on_mouse_lbtn_down(x,y){
   if(SB && inRect(x,y,SB)){ drag='scroll'; setScroll(y); return; }
 }
 function on_mouse_rbtn_up(x,y){
-  if(ctxMenu||confirmDel||renameEdit) return true;   // a modal is open: swallow
+  if(ctxMenu||confirmDel||renameEdit||dupPrompt) return true;   // a modal is open: swallow
   var i;
   // playlist-view track rows carry {pl,item}; rows in All Songs / artist / search views don't
   if(view==='playlist'){ for(i=0;i<HB_TR.length;i++){ if(HB_TR[i].pl!==undefined && inRect(x,y,HB_TR[i])){ return openTrackMenu(HB_TR[i].pl,HB_TR[i].item,x,y); } } }
@@ -1943,6 +2019,10 @@ function doCtrl(act){
 }
 function on_mouse_lbtn_up(x,y){
   // ---- modal overlays first ----
+  if(dupPrompt){
+    if(DUP_HB && inRect(x,y,DUP_HB.skip)){ dupSkip(); return; }
+    dupKeep(); return;                       // "Add anyway" / click outside: leave the playlist as-is
+  }
   if(confirmDel){
     if(CONF_HB && inRect(x,y,CONF_HB.del)){ doDeletePlaylist(confirmDel.pl); return; }
     confirmDel=null; repaintAll(); return;   // cancel / click outside
@@ -2016,6 +2096,7 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
+  if(dupPrompt){ if(DUP_HB){ if(inRect(x,y,DUP_HB.skip)) return 'dps'; if(inRect(x,y,DUP_HB.keep)) return 'dpk'; } return 'dp'; }
   if(renameEdit){ if(RENAME_HB){ if(inRect(x,y,RENAME_HB.save)) return 'rns'; if(inRect(x,y,RENAME_HB.cancel)) return 'rnc'; } return 'rn'; }
   if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
   if(ctxMenu){ for(i=0;i<CTX_HB.length;i++) if(inRect(x,y,CTX_HB[i])) return 'cx'+i; return 'cx'; }
@@ -2128,12 +2209,16 @@ function on_drag_drop(action,x,y,mask){
     plman.ActivePlaylist=np; revealPlaylist(np); firstRow=firstRowT=0; view='playlist';
   } else if(pi>=0){
     plman.UndoBackup(pi);                                              // so ctrl+Z undoes the import
+    armDupWatch(pi);                                                   // snapshot before the component inserts
     action.Playlist=pi; action.Base=plman.PlaylistItemCount(pi); action.ToSelect=true;   // append at end
     action.Effect=(action.Effect&1)?1:4;
   } else action.Effect=0;
   navDropHover=false; plDropHover=false; repaintAll();
 }
-function on_script_unload(){ stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); }
+function on_script_unload(){
+  stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim();
+  if(dupWatch && dupWatch.timer) window.ClearTimeout(dupWatch.timer);
+}
 function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
@@ -2172,7 +2257,7 @@ function on_volume_change(){ repaintBar(); }
 function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; songsIdx=null; songsRows=null; songsTracks=null; updateNP(); repaintAll(); }
 function on_playlist_switch(){ firstRow=firstRowT=0; invalidateItems(); repaintAll(); }
 function on_playlists_changed(){ invalidateItems(); repaintAll(); }
-function on_playlist_items_added(){ invalidateItems(); repaintAll(); }
+function on_playlist_items_added(pl){ invalidateItems(); if(dupWatch && dupWatch.pl===pl) scheduleDupScan(); repaintAll(); }
 function on_playlist_items_removed(){ invalidateItems(); repaintAll(); }
 function on_playlist_items_reordered(){ invalidateItems(); repaintAll(); }
 function on_item_focus_change(){ repaintAll(); }
