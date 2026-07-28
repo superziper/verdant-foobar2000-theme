@@ -566,6 +566,10 @@ function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
+// Deferred "scroll this playlist into view": drawNav is the only place that knows the row
+// geometry and the post-insert row count, so the request is queued and consumed there.
+var navRevealPl=-1;
+function revealPlaylist(i){ navRevealPl=i; }
 // empty-playlist "add songs" zone: drop cue + the two browse buttons
 var plDropHover=false, HB_PLADD_FILES=null, HB_PLADD_FOLDER=null;
 // playlist edit: right-click / hover-dots context menu, inline rename, delete confirm
@@ -592,12 +596,6 @@ function drawDots(gr,cx,cy,pl){
   if(hv(cx,cy,cx+24,cy+24)) gr.FillEllipse(cx,cy,24,24,RGBA(255,255,255,26));
   drawIcon(gr,'more',COL.text,cx,cy,24,24,18);
   HB_DOTS.push({x0:cx-2,y0:cy-2,x1:cx+26,y1:cy+26,pl:pl,mx:cx,my:cy+26});
-}
-// dashed rectangle border, drawn as short segments (GDI+ has no native dash)
-function dashRect(gr,x,y,w,h,col,dash,gap,th){
-  var st=dash+gap, d;
-  for(d=0;d<w;d+=st){ var dw=Math.min(dash,w-d); gr.FillSolidRect(x+d,y,dw,th,col); gr.FillSolidRect(x+d,y+h-th,dw,th,col); }
-  for(d=0;d<h;d+=st){ var dh=Math.min(dash,h-d); gr.FillSolidRect(x,y+d,th,dh,col); gr.FillSolidRect(x+w-th,y+d,th,dh,col); }
 }
 // Rounded outline. GDI+ rejects an arc bigger than half the side and centres a stroke on
 // the path, so inset by the line width first, then clamp the radius to what's left.
@@ -933,7 +931,7 @@ function drawNav(gr){
   var active=plman.ActivePlaylist;
   var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
   // pinned "add playlist" footer at the very bottom (always visible)
-  var footH=94, footTop=R.navLib.y+R.navLib.h-footH;
+  var footH=72, footTop=R.navLib.y+R.navLib.h-footH;
   // pinned "All Songs" entry above the list (Spotify's Liked Songs slot) - drawn after the crop, below
   var pinY=R.navLib.y+48, pinH=58;
   // scrollable playlist list (continuous pixel scroll), cropped just above the footer
@@ -942,6 +940,18 @@ function drawNav(gr){
   NAV_MAX=maxPx;
   if(navScroll>maxPx) navScroll=maxPx; if(navScroll<0) navScroll=0;
   if(navScrollT>maxPx) navScrollT=maxPx; if(navScrollT<0) navScrollT=0;
+  // honour a pending "scroll this playlist into view" request now that the row geometry is known
+  if(navRevealPl>=0){
+    var rk=-1, ri; for(ri=0;ri<pls.length;ri++){ if(pls[ri]===navRevealPl){ rk=ri; break; } }
+    navRevealPl=-1;
+    if(rk>=0){
+      var rt=rk*rh, want=navScrollT;
+      if(rt<want) want=rt;                                 // above the viewport: bring it to the top edge
+      else if(rt+rh>want+viewH) want=rt+rh-viewH;          // below it: bring it to the bottom edge
+      want=Math.max(0,Math.min(want,maxPx));
+      if(want!==navScrollT){ navScrollT=want; startScrollAnim(); }   // eased, same as wheel scrolling
+    }
+  }
   for(var k=Math.floor(navScroll/rh); k<pls.length; k++){
     var ry=listTop+k*rh-navScroll; if(ry>=cropY) break;
     var i2=pls[k], nm=plman.GetPlaylistName(i2);
@@ -976,17 +986,30 @@ function drawNav(gr){
   HB_ALLSONGS={x0:R.navLib.x,y0:pinY,x1:R.navLib.x+R.navLib.w,y1:pinY+pinH};
   gr.DrawLine(R.navLib.x+16,listTop-6,R.navLib.x+R.navLib.w-16,listTop-6,1,COL.line);
   drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,viewH,navScroll,maxPx,viewH,contentH,hv(R.navLib.x,R.navLib.y,R.navLib.x+R.navLib.w,R.navLib.y+R.navLib.h)||drag==='scrolln');
-  // dashed "drag a file / click to create" box (hint stays this size; whole section is the drop target)
-  var bx=R.navLib.x+14, bw2=R.navLib.w-28, by=footTop+5, bh2=footH-14;
-  var addHov=navDropHover||hv(bx,by,bx+bw2,by+bh2);
-  var dcol=navDropHover?COL.green:(addHov?COL.text:COL.text2);
-  if(navDropHover) gr.FillRoundRect(bx,by,bw2,bh2,10,10,RGBA(30,215,96,30));
-  dashRect(gr,bx,by,bw2,bh2,dcol,6,5,2);
-  var cy0=by+Math.round((bh2-63)/2);   // vertically-centred content block (icon + 2 lines), padded off the border
-  drawIcon(gr,'add',dcol,bx,cy0,bw2,22,22);
-  tC(gr,navDropHover?'Drop to import':'New playlist',FONT.pl,dcol,bx,cy0+28,bw2,18);
-  if(!navDropHover) tC(gr,'drag a file or click',FONT.plSub,COL.text3,bx,cy0+49,bw2,14);
-  HB_ADDPL={x0:bx,y0:by,x1:bx+bw2,y1:by+bh2};
+  drawAddPlaylist(gr,footTop,footH);
+}
+/* Pinned sidebar footer: click to create a blank playlist, or drop files on it to import.
+   Laid out horizontally (badge + two lines) because the sidebar is far wider than it is
+   tall here -- the old stacked version spent 94px to say the same thing. */
+function drawAddPlaylist(gr,footTop,footH){
+  var bx=R.navLib.x+12, bw=R.navLib.w-24, by=footTop+6, bh=footH-16;
+  var hot=hv(bx,by,bx+bw,by+bh), drop=navDropHover;
+  var rad=Math.min(10,bw/2,bh/2);
+  if(drop)      gr.FillRoundRect(bx,by,bw,bh,rad,rad,RGBA(30,215,96,26));
+  else if(hot)  gr.FillRoundRect(bx,by,bw,bh,rad,rad,COL.rowHover);
+  strokeRound(gr,bx,by,bw,bh,rad,drop?2:1,drop?COL.green:(hot?COL.text3:COL.line));
+  // circular badge, echoing the empty-playlist state in the main panel
+  var bs=30, ax=bx+13, ay=by+Math.round((bh-bs)/2);
+  gr.FillEllipse(ax,ay,bs,bs,drop?RGBA(30,215,96,46):RGBA(255,255,255,hot?26:16));
+  drawIcon(gr,'add',drop?COL.green:(hot?COL.text:COL.text2),ax,ay,bs,bs,18);
+  var tx=ax+bs+12, tw=bx+bw-12-tx;
+  if(drop){ tL(gr,'Drop to import',FONT.pl,COL.green,tx,by+Math.round((bh-20)/2),tw,20); }
+  else {
+    var ty=by+Math.round((bh-35)/2);          // two-line block, optically centred
+    tL(gr,'New playlist',FONT.pl,hot?COL.text:COL.text2,tx,ty,tw,19);
+    tL(gr,'drag a file or click',FONT.plSub,COL.text3,tx,ty+19,tw,16);
+  }
+  HB_ADDPL={x0:bx,y0:by,x1:bx+bw,y1:by+bh};
 }
 
 function drawMain(gr){
@@ -1884,7 +1907,7 @@ function on_mouse_lbtn_up(x,y){
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; repaintAll(); return; }
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; repaintAll(); return; }
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)){ if(view!=='songs'){ view='songs'; songsScroll=songsScrollT=0; } repaintAll(); return; }
-  if(HB_ADDPL && inRect(x,y,HB_ADDPL)){ var np=createNewPlaylist(); plman.ActivePlaylist=np; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
+  if(HB_ADDPL && inRect(x,y,HB_ADDPL)){ var np=createNewPlaylist(); plman.ActivePlaylist=np; revealPlaylist(np); firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
   if(HB_PLADD_FILES && inRect(x,y,HB_PLADD_FILES)){ addFilesToPl(plman.ActivePlaylist); return; }
   if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)){ addFolderToPl(plman.ActivePlaylist); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=firstRowT=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
@@ -2002,7 +2025,7 @@ function on_drag_drop(action,x,y,mask){
     var np=createNewPlaylist();
     action.Playlist=np; action.Base=0; action.ToSelect=true;            // component drops the files into it
     action.Effect=(action.Effect&1)?1:4;
-    plman.ActivePlaylist=np; firstRow=firstRowT=0; view='playlist';
+    plman.ActivePlaylist=np; revealPlaylist(np); firstRow=firstRowT=0; view='playlist';
   } else if(pi>=0){
     plman.UndoBackup(pi);                                              // so ctrl+Z undoes the import
     action.Playlist=pi; action.Base=plman.PlaylistItemCount(pi); action.ToSelect=true;   // append at end
