@@ -95,10 +95,23 @@ TF.trackno=fb.TitleFormat('%tracknumber%');
 var DT_L = 0x4|0x20|0x800|0x8000;        // left + vcenter + singleline + noprefix + end-ellipsis
 var DT_R = 0x2|0x4|0x20|0x800;           // right + vcenter + singleline + noprefix
 var DT_C = 0x1|0x4|0x20|0x800;           // center + vcenter + singleline + noprefix
-function tL(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_L); }
-function tR(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_R); }
-function tC(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C); }
-function tCE(gr,s,f,c,x,y,w,h){ gr.GdiDrawText(s,f,c,x,y,w,h,DT_C|0x8000); }   // centered, ellipsized
+/* Every label is DT_SINGLELINE|DT_VCENTER, which CLIPS to the rect. Fonts scale with UISCALE but
+   call sites pass hardcoded box heights, so a box can end up shorter than the font's line height
+   and descenders get sliced off ("songs", "drag a file"). fitV() grows a too-short box symmetrically
+   to the line height: the text stays optically where the caller put it, it just stops being cut.
+   Line height is measured once per font (identity-cached -- the FONT table is small and fixed). */
+var LH_F=[], LH_V=[];
+function lineH(gr,f){
+  for(var i=0;i<LH_F.length;i++) if(LH_F[i]===f) return LH_V[i];
+  var n=0; try{ n=Math.ceil(gr.CalcTextHeight('Ag',f)); }catch(e){ n=0; }
+  LH_F.push(f); LH_V.push(n); return n;
+}
+var fitY=0, fitH=0;
+function fitV(gr,f,y,h){ var n=lineH(gr,f); if(n>h){ fitY=y-((n-h)>>1); fitH=n; } else { fitY=y; fitH=h; } }
+function tL(gr,s,f,c,x,y,w,h){ fitV(gr,f,y,h); gr.GdiDrawText(s,f,c,x,fitY,w,fitH,DT_L); }
+function tR(gr,s,f,c,x,y,w,h){ fitV(gr,f,y,h); gr.GdiDrawText(s,f,c,x,fitY,w,fitH,DT_R); }
+function tC(gr,s,f,c,x,y,w,h){ fitV(gr,f,y,h); gr.GdiDrawText(s,f,c,x,fitY,w,fitH,DT_C); }
+function tCE(gr,s,f,c,x,y,w,h){ fitV(gr,f,y,h); gr.GdiDrawText(s,f,c,x,fitY,w,fitH,DT_C|0x8000); }   // centered, ellipsized
 
 /* ------------------------- vector icons (SVG rasterized via gdi.LoadSVG, tinted + cached) ------------------------- */
 var ICONS={
@@ -154,7 +167,7 @@ function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
 // Spotify-style shuffle + repeat. Repeat maps to native PlaybackOrder (0/1/2); SHUFFLE is our own
 // (we play from a hidden shuffled copy of the playlist -> accurate "next up"). See shuffle engine below.
-var pbShuffle=false, pbRepeat=0;   // pbRepeat: 0 off | 1 all | 2 one
+var pbShuffle=true, pbRepeat=0;   // shuffle defaults ON at startup/reload. pbRepeat: 0 off | 1 all | 2 one
 function applyPlaybackOrder(){ setOrder(pbRepeat===2?2:(pbRepeat===1?1:0)); }   // native handles repeat only
 function syncOrderFromFb(){ var o=readOrder(); pbRepeat=(o===2)?2:(o===1?1:0); }
 function toggleShuffle(){
