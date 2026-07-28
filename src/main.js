@@ -119,7 +119,9 @@ var ICONS={
  equalizer:"<path d='M10 20h4V4h-4zm-6 0h4v-8H4zm12-11v11h4V9z'/>",
  heart:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2zm0-2.7c3.9-3.54 6-5.65 6-8.5A2.5 2.5 0 0 0 12.86 8h-1.72A2.5 2.5 0 0 0 6 9.5c0 2.85 2.1 4.96 6 8.5z'/>",
  heartFill:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2z'/>",
- chevron:"<path d='M7 10l5 5 5-5z'/>"
+ chevron:"<path d='M7 10l5 5 5-5z'/>",
+ sortAsc:"<path d='M4 12l1.41 1.41L11 7.83V20h2V7.83l5.59 5.58L20 12l-8-8-8 8z'/>",
+ sortDesc:"<path d='M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.59-5.58L4 12l8 8 8-8z'/>"
 };
 var svgCache={};
 function iconImg(name,size,col){
@@ -890,7 +892,32 @@ function fmtDur(s){
   if(m>0) return m+' min';
   return s+' sec';
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; }
+
+/* ---- Playlist view: sort-by state, same "recompute only when the setting changes" shape
+   as the All Songs grouping (songsGroup/buildSongsRows). Sorting only reorders how the
+   playlist's own rows are DISPLAYED - native item indices (used for playback, the row-menu,
+   drag targets, etc.) are untouched, so order[displayRow] simply maps to the real item index. */
+var plSort='artist', plSortDir='asc', plSortMenuOpen=false, PL_SORT_HB=[], HB_PLSORT=null, HB_PLSORTDIR=null;
+var PL_SORTS=[['Title','title'],['Artist','artist'],['Album','album']];
+var plOrderMap={};
+function plSortLabel(){ for(var i=0;i<PL_SORTS.length;i++) if(PL_SORTS[i][1]===plSort) return PL_SORTS[i][0]; return 'Artist'; }
+function buildPlOrder(pi){
+  var meta=getMeta(pi), n=meta.title.length, order=[], i;
+  for(i=0;i<n;i++) order.push(i);
+  if(plSort==='title') order.sort(function(a,b){ return cmpStr(meta.title[a],meta.title[b])||cmpStr(meta.artist[a],meta.artist[b]); });
+  else if(plSort==='album') order.sort(function(a,b){ return cmpStr(meta.album[a],meta.album[b])||cmpStr(meta.artist[a],meta.artist[b])||cmpStr(meta.title[a],meta.title[b]); });
+  else order.sort(function(a,b){ return cmpStr(meta.artist[a],meta.artist[b])||cmpStr(meta.album[a],meta.album[b])||cmpStr(meta.title[a],meta.title[b]); });
+  if(plSortDir==='desc') order.reverse();
+  return order;
+}
+function getPlOrder(pi){
+  var meta=getMeta(pi), n=meta.title.length, c=plOrderMap[pi];
+  if(!c || c.sort!==plSort || c.dir!==plSortDir || c.n!==n){ c={sort:plSort,dir:plSortDir,n:n,order:buildPlOrder(pi)}; plOrderMap[pi]=c; }
+  return c.order;
+}
+function setPlSort(s){ plSort=s; plSortMenuOpen=false; repaintAll(); }
+function togglePlSortDir(){ plSortDir=(plSortDir==='asc')?'desc':'asc'; repaintAll(); }
 
 function layout(){
   var g=M.gap, top0=TBH+g;   // one uniform gap on every side, incl. below the title bar and above the bar
@@ -1186,6 +1213,7 @@ function drawAddPlaylist(gr,footTop,footH){
 function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   if(view!=='songs'){ HB_SG=null; SG_HB=[]; }
+  if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
   var r=R.main; panelBg(gr,r,COL.base);
@@ -1195,6 +1223,35 @@ function drawMain(gr){
   if(view==='songs'){ drawSongs(gr,r); return; }
   drawPlaylist(gr,r);
 }
+/* ---- Playlist view: sort-by pill + asc/desc toggle. Same interaction shape as the All
+   Songs group-by pill (drawGroupPill/drawGroupMenu) - a pill that opens a floating dropdown -
+   plus a second small button that just flips plSortDir. ---- */
+function drawSortPill(gr,x,y,w,h){
+  var open=plSortMenuOpen, hov=hv(x,y,x+w,y+h);
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,(open||hov)?RGB(58,58,58):RGBA(0,0,0,90));
+  tL(gr,'Sort: '+plSortLabel(),FONT.pl,COL.text,x+18,y,w-46,h);
+  drawIcon(gr,'chevron',COL.text2,x+w-32,y+(h-20)/2,20,20,18);
+  HB_PLSORT={x0:x,y0:y,x1:x+w,y1:y+h};
+}
+function drawSortDirBtn(gr,x,y,w,h){
+  var hov=hv(x,y,x+w,y+h);
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,hov?RGB(58,58,58):RGBA(0,0,0,90));
+  drawIcon(gr,plSortDir==='asc'?'sortAsc':'sortDesc',COL.text,x,y,w,h,18);
+  HB_PLSORTDIR={x0:x,y0:y,x1:x+w,y1:y+h};
+}
+function drawSortMenu(gr){          // drawn last so it floats over the track list
+  PL_SORT_HB=[];
+  if(!plSortMenuOpen || !HB_PLSORT) return;
+  var bw=Math.max(180,HB_PLSORT.x1-HB_PLSORT.x0), ih=40, bx=HB_PLSORT.x1-bw, iy=HB_PLSORT.y1+6, bh=PL_SORTS.length*ih+10;
+  gr.FillSolidRect(bx+3,iy+4,bw,bh,RGBA(0,0,0,120));
+  gr.FillRoundRect(bx,iy,bw,bh,8,8,RGB(43,43,43));
+  for(var i=0;i<PL_SORTS.length;i++){
+    var ry=iy+5+i*ih, on=(PL_SORTS[i][1]===plSort);
+    if(hv(bx,ry,bx+bw,ry+ih)) gr.FillRoundRect(bx+4,ry,bw-8,ih,5,5,RGBA(255,255,255,20));
+    tL(gr,PL_SORTS[i][0],FONT.pl,on?COL.green:COL.text,bx+18,ry,bw-30,ih);
+    PL_SORT_HB.push({x0:bx,y0:ry,x1:bx+bw,y1:ry+ih,s:PL_SORTS[i][1]});
+  }
+}
 function drawPlaylist(gr,r){
   HB_TR=[]; HB_ARTIST=[]; HB_PLADD_FILES=null; HB_PLADD_FOLDER=null;
   var p=activePl();
@@ -1202,11 +1259,17 @@ function drawPlaylist(gr,r){
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawPlCover(gr,ax,ay,art,8,p.i,p.name);
-  var tx=ax+art+24, tw=r.x+r.w-M.cpad-tx;
+  // sort pill + asc/desc button, right-aligned like the All Songs group pill; header text
+  // stops short of this column so the two can never collide on a narrow panel
+  var rx0=r.x+r.w-M.cpad, sortDirW=38, sortPillW=200, sortGap=8, sortTotalW=sortPillW+sortGap+sortDirW;
+  var sortX=Math.max(ax+art+24,rx0-sortTotalW), sortY=ay+142;
+  var tx=ax+art+24, tw=Math.max(120,sortX-12-tx);
   tL(gr,'PLAYLIST',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
   var meta0=getMeta(p.i);
   tL(gr,p.count+' songs'+(meta0.totalSec>0?(' '+CH_DOT+' '+fmtDur(meta0.totalSec)):''),FONT.meta,COL.text2,tx,ay+150,tw,22);
+  drawSortPill(gr,sortX,sortY,sortPillW,38);
+  drawSortDirBtn(gr,sortX+sortPillW+sortGap,sortY,sortDirW,38);
 
   // track list
   var lx=r.x+M.cpad, rx=r.x+r.w-M.cpad;
@@ -1222,10 +1285,11 @@ function drawPlaylist(gr,r){
   if(firstRowT>maxPx) firstRowT=maxPx; if(firstRowT<0) firstRowT=0;
   var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
   var items=getItems(p.i), meta=getMeta(p.i), shufHere=npIsShuffleOf(p.name);
+  var order=getPlOrder(p.i);   // display position -> native item index (identity when plSort==='none')
   warmOnce('pl'+p.i,items);   // pre-load this playlist's covers in the background
-  for(var j=Math.floor(firstRow/rh); j<p.count; j++){
-    var ry=rowsTop+j*rh-firstRow; if(ry>=cropY) break;
-    var h=items[j]; if(!h){ continue; }
+  for(var d=Math.floor(firstRow/rh); d<p.count; d++){
+    var ry=rowsTop+d*rh-firstRow; if(ry>=cropY) break;
+    var j=order[d]; var h=items[j]; if(!h){ continue; }
     var isPlaying=(playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j)
                   || (shufHere && sameHandle(h,NP));   // playing from the hidden shuffle copy of this playlist
     // the row whose context menu is open stays lit (brighter than hover) so the target is unambiguous
@@ -1234,7 +1298,7 @@ function drawPlaylist(gr,r){
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,isMenuRow?COL.rowActive:COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
     if(isHover) drawIcon(gr,'play',COL.text,lx,ry,numW,rh,14);
-    else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
+    else tL(gr,String(d+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
     var cs=40, cy=ry+(rh-cs)/2, alb=meta.album[j];
     drawCover(gr,titleX,cy,cs,3,h,alb||String(j),meta.artkey[j]);
     var ttx=titleX+cs+12, ttw=titleW-cs-12;
@@ -1247,7 +1311,7 @@ function drawPlaylist(gr,r){
   // crop the partial rows top & bottom, then draw the sticky column header on top
   gr.FillSolidRect(r.x,rowsTop-rh,r.w,rh,COL.base);
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
-  if(p.count===0){ drawPlEmpty(gr,r,rowsTop-rh,cropY); return; }   // column headings over a void read as a bug
+  if(p.count===0){ drawPlEmpty(gr,r,rowsTop-rh,cropY); drawSortMenu(gr); return; }   // column headings over a void read as a bug
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
@@ -1265,6 +1329,7 @@ function drawPlaylist(gr,r){
       tC(gr,'Drop to add to this playlist',FONT.pl,COL.black,cxOf(ix,iw,lw),ly,lw,lh);
     }
   }
+  drawSortMenu(gr);
 }
 // zero-track playlist: a centred badge/headline/buttons block, or one big drop cue while
 // files are dragged over it. Degrades from the top down as the panel gets shorter.
@@ -1955,7 +2020,7 @@ function drawFullscreen(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||dupPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||dupPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -2062,6 +2127,13 @@ function on_mouse_lbtn_up(x,y){
     sgMenuOpen=false; repaintAll(); return;
   }
   if(HB_SG && inRect(x,y,HB_SG)){ sgMenuOpen=true; repaintAll(); return; }
+  // sort-by dropdown + asc/desc toggle (Playlist view)
+  if(plSortMenuOpen){
+    var ps; for(ps=0;ps<PL_SORT_HB.length;ps++){ if(inRect(x,y,PL_SORT_HB[ps])){ setPlSort(PL_SORT_HB[ps].s); return; } }
+    plSortMenuOpen=false; repaintAll(); return;
+  }
+  if(HB_PLSORT && inRect(x,y,HB_PLSORT)){ plSortMenuOpen=true; repaintAll(); return; }
+  if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)){ togglePlSortDir(); return; }
   if(fsMode){
     if(vizMenuOpen){
       var vm; for(vm=0;vm<VIZ_MENU_HB.length;vm++){ if(inRect(x,y,VIZ_MENU_HB[vm])){ vizStyle=VIZ_MENU_HB[vm].style; vizMenuOpen=false; repaintAll(); return; } }
@@ -2101,6 +2173,7 @@ function hoverSig(x,y){
   if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
   if(ctxMenu){ for(i=0;i<CTX_HB.length;i++) if(inRect(x,y,CTX_HB[i])) return 'cx'+i; return 'cx'; }
   if(sgMenuOpen){ for(i=0;i<SG_HB.length;i++) if(inRect(x,y,SG_HB[i])) return 'sg'+i; return 'sg'; }
+  if(plSortMenuOpen){ for(i=0;i<PL_SORT_HB.length;i++) if(inRect(x,y,PL_SORT_HB[i])) return 'ps'+i; return 'ps'; }
   for(i=0;i<HB_DOTS.length;i++) if(inRect(x,y,HB_DOTS[i])) return 'd'+i;
   if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
   if(SBH && inRect(x,y,SBH)) return 'sbh';
@@ -2110,6 +2183,8 @@ function hoverSig(x,y){
   if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)) return 'pladdd';
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)) return 'als';
   if(HB_SG && inRect(x,y,HB_SG)) return 'sgb';
+  if(HB_PLSORT && inRect(x,y,HB_PLSORT)) return 'psb';
+  if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)) return 'psd';
   if(SB && inRect(x,y,SB)) return 'sb';
   for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
   for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
