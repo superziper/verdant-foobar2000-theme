@@ -15,7 +15,9 @@
  * bootstrap.txt so edits = deploy.ps1 + right-click > Reload.
  * ============================================================= */
 
-window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', options:{ grab_focus:true } });
+// NOTE: the key is `features`, not `options` -- an unknown key is silently ignored, and without
+// features.drag_n_drop the panel is never registered as an OLE drop target, so no on_drag_* fires.
+window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', features:{ drag_n_drop:true, grab_focus:true } });
 var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys (incl. as-typed chars) instead of letting
                                // foobar swallow them as global shortcuts. Applied only in Search
                                // view (see applyKeyMode) so shortcuts still work everywhere else.
@@ -140,6 +142,7 @@ function coverCol(seed){ return PALETTE[hash(seed)%PALETTE.length]; }
 function blend(c1,c2,t){ var r=(c1>>16)&255,g=(c1>>8)&255,b=c1&255,r2=(c2>>16)&255,g2=(c2>>8)&255,b2=c2&255; return RGB(Math.round(r+(r2-r)*t),Math.round(g+(g2-g)*t),Math.round(b+(b2-b)*t)); }
 function fmtTime(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
 function inRect(x,y,r){ return x>=r.x0 && x<r.x1 && y>=r.y0 && y<r.y1; }
+function cxOf(x,w,cw){ return x+Math.round((w-cw)/2); }   // x that centres a cw-wide thing inside [x,w]
 function clamp01(v){ return v<0?0:(v>1?1:v); }
 function vol2pos(v){ return Math.pow(2, v/10); }                                   // dB(-100..0) -> 0..1
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
@@ -563,11 +566,15 @@ function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
+// empty-playlist "add songs" zone: drop cue + the two browse buttons
+var plDropHover=false, HB_PLADD_FILES=null, HB_PLADD_FOLDER=null;
 // playlist edit: right-click / hover-dots context menu, inline rename, delete confirm
 var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null, RENAME_HB=null;
 function openPlaylistMenu(pl,x,y){
-  ctxMenu={pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y,
-           items:[{label:'Rename',act:'rename'},{label:'Delete',act:'delete'}]};
+  var items=[];
+  if(!plman.IsPlaylistLocked(pl)) items.push({label:'Add files...',act:'addfiles'},{label:'Add folder...',act:'addfolder'});
+  items.push({label:'Rename',act:'rename'},{label:'Delete',act:'delete'});
+  ctxMenu={pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y, items:items};
   repaintAll();
 }
 function startRename(pl){ renameEdit={pl:pl, text:plman.GetPlaylistName(pl)}; ctxMenu=null; caretOn=true; startCaret(); applyKeyMode(); repaintAll(); }
@@ -591,6 +598,14 @@ function dashRect(gr,x,y,w,h,col,dash,gap,th){
   var st=dash+gap, d;
   for(d=0;d<w;d+=st){ var dw=Math.min(dash,w-d); gr.FillSolidRect(x+d,y,dw,th,col); gr.FillSolidRect(x+d,y+h-th,dw,th,col); }
   for(d=0;d<h;d+=st){ var dh=Math.min(dash,h-d); gr.FillSolidRect(x,y+d,th,dh,col); gr.FillSolidRect(x+w-th,y+d,th,dh,col); }
+}
+// Rounded outline. GDI+ rejects an arc bigger than half the side and centres a stroke on
+// the path, so inset by the line width first, then clamp the radius to what's left.
+function strokeRound(gr,x,y,w,h,rad,lw,col){
+  var i=lw/2, sw=w-lw, sh=h-lw;
+  if(sw<=0 || sh<=0) return;
+  var a=Math.min(rad,sw/2,sh/2);
+  gr.DrawRoundRect(x+i,y+i,sw,sh,a,a,lw,col);
 }
 // Always-visible, draggable scrollbar. Each scrollable view calls this at the end
 // of its draw; setScroll() maps a drag/click to that view's scroll index.
@@ -628,6 +643,11 @@ function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/
 // create a uniquely-named empty playlist, return its index
 function newPlaylistName(){ var b='New Playlist', nm=b, k=1, i; for(;;){ var hit=false; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)===nm){ hit=true; break; } } if(!hit) return nm; k++; nm=b+' '+k; } }
 function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, newPlaylistName()); }
+// Native multi-select pickers. fb.AddFiles/AddDirectory take no arguments and always target the
+// ACTIVE playlist, so point it at the destination first. (utils.FilePicker is single-select only.)
+// The insert is async; on_playlist_items_added already invalidates the caches and repaints.
+function addFilesToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; fb.AddFiles(); }
+function addFolderToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; fb.AddDirectory(); }
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
@@ -982,7 +1002,7 @@ function drawMain(gr){
   drawPlaylist(gr,r);
 }
 function drawPlaylist(gr,r){
-  HB_TR=[]; HB_ARTIST=[];
+  HB_TR=[]; HB_ARTIST=[]; HB_PLADD_FILES=null; HB_PLADD_FOLDER=null;
   var p=activePl();
   // header gradient wash (square top corners; polish later)
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
@@ -1031,12 +1051,74 @@ function drawPlaylist(gr,r){
   // crop the partial rows top & bottom, then draw the sticky column header on top
   gr.FillSolidRect(r.x,rowsTop-rh,r.w,rh,COL.base);
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
+  if(p.count===0){ drawPlEmpty(gr,r,rowsTop-rh,cropY); return; }   // column headings over a void read as a bug
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
   drawIcon(gr,'clock',COL.text2,rx-16,listTop,16,20,15);
   gr.DrawLine(lx,listTop+26,rx,listTop+26,1,COL.line);
   drawScrollbar(gr,rx+8,rowsTop,viewH,firstRow,maxPx,viewH,contentH,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
+  // the empty-state zone isn't on screen here, so outline the list itself as the target
+  if(plDropHover){
+    var iy=rowsTop-rh, ih=cropY-iy, ix=lx-12, iw=rx-lx+24, ir=Math.min(12,iw/2,ih/2);
+    gr.FillRoundRect(ix,iy,iw,ih,ir,ir,RGBA(30,215,96,20));
+    strokeRound(gr,ix,iy,iw,ih,ir,2,COL.green);
+    var lh=34, ly=iy+ih-lh-18, lw=Math.min(iw-32,pillW(gr,'Drop to add to this playlist'));
+    if(lw>=lh && ih>lh+36){                                  // radius is lh/2, so lw must clear it
+      gr.FillRoundRect(cxOf(ix,iw,lw),ly,lw,lh,lh/2,lh/2,COL.green);
+      tC(gr,'Drop to add to this playlist',FONT.pl,COL.black,cxOf(ix,iw,lw),ly,lw,lh);
+    }
+  }
+}
+// zero-track playlist: a centred badge/headline/buttons block, or one big drop cue while
+// files are dragged over it. Degrades from the top down as the panel gets shorter.
+function drawPlEmpty(gr,r,top,bottom){
+  var availH=bottom-top, availW=r.w-M.cpad*2;
+  if(availW<220 || availH<110) return;               // too cramped to say anything useful
+  var cx=r.x+Math.round(r.w/2);
+  if(plDropHover){ drawDropZone(gr,cx,top,availW,availH); return; }
+
+  var badge=availH>=250, sub=availH>=170;            // 216 / 130 / 106 px of content
+  var blockH=(badge?86:0)+40+(sub?24:0)+24+PILL_H;
+  var y=top+Math.round((availH-blockH)/2);
+  if(badge){
+    var bs=64, bx=cx-bs/2;
+    gr.FillEllipse(bx,y,bs,bs,RGBA(255,255,255,16));   // a lift off COL.base, not a hard disc
+    drawIcon(gr,'add',COL.text2,bx,y,bs,bs,26);
+    y+=86;
+  }
+  tC(gr,"Let's add some songs",FONT.sect2,COL.text,r.x,y,r.w,40); y+=40;
+  if(sub){ tC(gr,'Drag files here, or browse your computer.',FONT.meta,COL.text2,r.x,y,r.w,24); y+=24; }
+  y+=24;
+  // the pair hugs its labels and centres as a group, so the widths stay balanced at any UISCALE
+  var w1=pillW(gr,'Browse files'), w2=pillW(gr,'Browse folder'), gap=12;
+  var px=cx-Math.round((w1+w2+gap)/2);
+  HB_PLADD_FILES=drawPill(gr,px,y,w1,'Browse files',true);
+  HB_PLADD_FOLDER=drawPill(gr,px+w1+gap,y,w2,'Browse folder',false);
+}
+// green wash + rounded outline + label: the shape the cursor is aiming at
+function drawDropZone(gr,cx,top,availW,availH){
+  var bw=Math.min(560,availW), bh=Math.min(260,availH-24);
+  var bx=cx-Math.round(bw/2), by=top+Math.round((availH-bh)/2), rad=Math.min(14,bw/2,bh/2);
+  gr.FillRoundRect(bx,by,bw,bh,rad,rad,RGBA(30,215,96,26));
+  strokeRound(gr,bx,by,bw,bh,rad,2,COL.green);
+  var iy=by+Math.round(bh/2)-40;
+  drawIcon(gr,'add',COL.green,bx,iy,bw,34,34);
+  tC(gr,'Drop to add to this playlist',FONT.sect,COL.green,bx,iy+44,bw,26);
+}
+/* Spotify-style pill buttons: primary is a solid white capsule with black text,
+   secondary is outlined. Both nudge outward on hover (the component has no transforms,
+   so "scale" is a 2px grow), inside a hitbox padded enough that the grow can't flicker. */
+var PILL_H=42;
+function pillW(gr,label){ return Math.max(140,gr.CalcTextWidth(label,FONT.pl)+48); }
+function drawPill(gr,x,y,w,label,primary){
+  var hb={x0:x-3,y0:y-3,x1:x+w+3,y1:y+PILL_H+3};
+  var g=hv(hb.x0,hb.y0,hb.x1,hb.y1)?2:0;
+  var bx=x-g, by=y-g, bw=w+g*2, bh=PILL_H+g*2, rad=bh/2;
+  if(primary) gr.FillRoundRect(bx,by,bw,bh,rad,rad,COL.text);
+  else strokeRound(gr,bx,by,bw,bh,rad,g?2:1,g?COL.text:COL.text2);
+  tC(gr,label,FONT.pl,primary?COL.black:COL.text,bx,by,bw,bh);
+  return hb;
 }
 
 function drawPlaylistCard(gr,x,y,w,i){
@@ -1746,7 +1828,13 @@ function on_mouse_lbtn_up(x,y){
   if(ctxMenu){
     var ci; for(ci=0;ci<CTX_HB.length;ci++){ if(inRect(x,y,CTX_HB[ci])){
       var act=CTX_HB[ci].act, pl=ctxMenu.pl, nm=ctxMenu.name;
-      if(act==='rename'){ startRename(pl); } else { confirmDel={pl:pl,name:nm}; ctxMenu=null; repaintAll(); }
+      // navigate to the target first, so the tracks land somewhere the user can actually see
+      if(act==='addfiles'||act==='addfolder'){
+        ctxMenu=null; firstRow=firstRowT=0; view='playlist'; repaintAll();
+        if(act==='addfiles') addFilesToPl(pl); else addFolderToPl(pl);
+      }
+      else if(act==='rename'){ startRename(pl); }
+      else { confirmDel={pl:pl,name:nm}; ctxMenu=null; repaintAll(); }
       return;
     } }
     ctxMenu=null; repaintAll(); return;      // click outside menu -> close
@@ -1797,6 +1885,8 @@ function on_mouse_lbtn_up(x,y){
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; repaintAll(); return; }
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)){ if(view!=='songs'){ view='songs'; songsScroll=songsScrollT=0; } repaintAll(); return; }
   if(HB_ADDPL && inRect(x,y,HB_ADDPL)){ var np=createNewPlaylist(); plman.ActivePlaylist=np; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
+  if(HB_PLADD_FILES && inRect(x,y,HB_PLADD_FILES)){ addFilesToPl(plman.ActivePlaylist); return; }
+  if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)){ addFolderToPl(plman.ActivePlaylist); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=firstRowT=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; } }
   for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.songs) playSongsRow(tr.ti); else if(tr.lib) playArtistTrack(tr.block,tr.idx); else playPlaylistItem(tr.pl,tr.item); repaintAll(); return; } }
@@ -1812,6 +1902,8 @@ function hoverSig(x,y){
   if(SBH && inRect(x,y,SBH)) return 'sbh';
   if(SBN && inRect(x,y,SBN)) return 'sbn';
   if(HB_ADDPL && inRect(x,y,HB_ADDPL)) return 'addpl';
+  if(HB_PLADD_FILES && inRect(x,y,HB_PLADD_FILES)) return 'pladdf';
+  if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)) return 'pladdd';
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)) return 'als';
   if(HB_SG && inRect(x,y,HB_SG)) return 'sgb';
   if(SB && inRect(x,y,SB)) return 'sb';
@@ -1875,25 +1967,48 @@ function on_mouse_wheel(step){
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; repaintAll(); return; }
   firstRowT-=step*WHEEL_PX; if(firstRowT<0)firstRowT=0; if(firstRowT>PL_MAXPX)firstRowT=PL_MAXPX; startScrollAnim();   // playlist songs: smooth
 }
-/* ---- drag & drop external files anywhere in the library section -> new playlist ---- */
-function overLib(x,y){ return R.navLib && x>=R.navLib.x && x<R.navLib.x+R.navLib.w && y>=R.navLib.y && y<R.navLib.y+R.navLib.h; }
+/* ---- drag & drop external files ------------------------------------------------
+   Two targets: the library section (-> creates a new playlist) and the body of the
+   playlist view (-> appends to the playlist you're looking at). Everywhere else denies.
+   Note we never see the dropped paths: DropTargetAction exposes Playlist/Base/ToSelect
+   write-only, so we just name a destination and the component performs the insert. */
+function overLib(x,y){ return !!R.navLib && x>=R.navLib.x && x<R.navLib.x+R.navLib.w && y>=R.navLib.y && y<R.navLib.y+R.navLib.h; }
+// body of the playlist view -> index of the playlist to append to, or -1 if that's not a valid target
+function plDropTarget(x,y){
+  if(fsMode || view!=='playlist' || !R.main) return -1;
+  if(x<R.main.x || x>=R.main.x+R.main.w || y<R.main.y || y>=R.main.y+R.main.h) return -1;
+  var i=plman.ActivePlaylist;
+  if(i<0 || plman.IsPlaylistLocked(i)) return -1;   // autoplaylists etc. can't take manual inserts
+  return i;
+}
 function dragUpdate(action,x,y){
-  var over=overLib(x,y) && !action.IsInternal;   // external files, anywhere over the library
-  if(over) action.Effect=(action.Effect&1)?1:((action.Effect&4)?4:0);  // prefer copy, else link
-  else action.Effect=0;                                                  // deny elsewhere
-  if(over!==navDropHover){ navDropHover=over; repaintAll(); }
+  var ext=!action.IsInternal;                        // ignore drags started inside the skin
+  var onLib=ext && overLib(x,y), onPl=!onLib && ext && plDropTarget(x,y)>=0;
+  if(onLib||onPl) action.Effect=(action.Effect&1)?1:((action.Effect&4)?4:0);  // prefer copy, else link
+  else action.Effect=0;                                                        // deny elsewhere
+  setDropHover(onLib,onPl);
+}
+// repaint only the section whose cue changed -- drag-over fires on every mouse move
+function setDropHover(onLib,onPl){
+  if(onLib!==navDropHover){ navDropHover=onLib; repaintNav(); }
+  if(onPl!==plDropHover){ plDropHover=onPl; repaintMain(); }
 }
 function on_drag_enter(action,x,y,mask){ dragUpdate(action,x,y); }
 function on_drag_over(action,x,y,mask){ dragUpdate(action,x,y); }
-function on_drag_leave(){ if(navDropHover){ navDropHover=false; repaintAll(); } }
+function on_drag_leave(){ setDropHover(false,false); }
 function on_drag_drop(action,x,y,mask){
-  if(overLib(x,y) && !action.IsInternal && (action.Effect&5)){          // 5 = copy|link
+  var ext=!action.IsInternal, hit=ext&&(action.Effect&5), pi=hit?plDropTarget(x,y):-1;   // 5 = copy|link
+  if(hit && overLib(x,y)){
     var np=createNewPlaylist();
     action.Playlist=np; action.Base=0; action.ToSelect=true;            // component drops the files into it
     action.Effect=(action.Effect&1)?1:4;
     plman.ActivePlaylist=np; firstRow=firstRowT=0; view='playlist';
+  } else if(pi>=0){
+    plman.UndoBackup(pi);                                              // so ctrl+Z undoes the import
+    action.Playlist=pi; action.Base=plman.PlaylistItemCount(pi); action.ToSelect=true;   // append at end
+    action.Effect=(action.Effect&1)?1:4;
   } else action.Effect=0;
-  navDropHover=false; repaintAll();
+  navDropHover=false; plDropHover=false; repaintAll();
 }
 function on_script_unload(){ stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); }
 function invalidateLibrary(){
