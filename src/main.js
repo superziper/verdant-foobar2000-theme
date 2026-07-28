@@ -580,7 +580,7 @@ function scrollTick(){
 function startScrollAnim(){ if(!scrollTimer) scrollTimer=window.SetInterval(scrollTick,16); }
 function stopScrollAnim(){ if(scrollTimer){ window.ClearInterval(scrollTimer); scrollTimer=null; } }
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
-var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null;
+var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[];
 var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
 // Deferred "scroll this playlist into view": drawNav is the only place that knows the row
@@ -863,6 +863,19 @@ function shuffleExitToSource(){   // toggled shuffle OFF -> resume the real play
 function playPlaylistItem(pl,item){   // clicking a track: shuffle-aware
   if(pbShuffle) playShuffled(pl,getItems(pl)[item],plman.GetPlaylistName(pl),false);
   else plman.ExecutePlaylistDefaultAction(pl,item);
+}
+/* Clicking a row in the right-hand queue jumps straight to it. Deliberately NOT playPlaylistItem():
+   under shuffle the queue lists the hidden shuffled playlist, and playPlaylistItem would reshuffle
+   it -- throwing away the very running order the user is looking at. A plain jump keeps it intact. */
+function playQueueNext(pl,item){ try{ plman.ExecutePlaylistDefaultAction(pl,item); }catch(e){} }
+// A manually-queued row: play it and drop it from the queue, since it is no longer "up next".
+function playQueueItem(qi){
+  var c=null; try{ c=plman.GetPlaybackQueueContents(); }catch(e){ c=null; }
+  if(!c || !c.length || qi>=c.length) return;
+  var it=c[qi], pi=it.PlaylistIndex, ii=it.PlaylistItemIndex;
+  try{ plman.RemoveItemFromPlaybackQueue(qi); }catch(e){}
+  if(pi>=0 && ii>=0) playQueueNext(pi,ii);
+  else if(it.Handle) playHandleList([it.Handle],0);   // queued from outside any playlist
 }
 // is the now-playing track this playlist's shuffled source? (for highlighting the right row)
 function npIsShuffleOf(name){ return pbShuffle && NP && name===shufSrcName; }
@@ -1696,8 +1709,14 @@ function drawSearch(gr,r){
   }
   if(!any) tC(gr,'No results found for "'+searchQuery+'"',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2),r.w,24);
 }
+// hover cue + click target for one queue row; rows are rh apart so the boxes tile exactly
+function qRow(gr,r,x,qy,rh){
+  var x0=x-8, y0=qy-6, x1=r.x+r.w-10, y1=qy+rh-6;
+  if(hv(x0,y0,x1,y1)) gr.FillRoundRect(x0,y0,x1-x0,y1-y0,6,6,COL.rowHover);
+  return {x0:x0,y0:y0,x1:x1,y1:y1};
+}
 function drawQueue(gr){
-  HB_TABS=[];
+  HB_TABS=[]; HB_Q=[];
   var r=R.queue; panelBg(gr,r,COL.base);
   var x=r.x+18;
   var qOn=rightTab==='queue';
@@ -1746,6 +1765,7 @@ function drawQueue(gr){
     for(qi=0;qi<mq.Count && shown<18;qi++){
       if(qy+rh>bottom) break;
       var qh=mq[qi]; if(!qh) continue;
+      var qhb=qRow(gr,r,x,qy,rh); qhb.q=qi; HB_Q.push(qhb);
       drawCover(gr,x,qy,44,4,qh,'mq'+qi);
       tL(gr,TF.title.EvalWithMetadb(qh),FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
       tL(gr,TF.artist.EvalWithMetadb(qh),FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
@@ -1776,6 +1796,7 @@ function drawQueue(gr){
       for(var k=start;k<cnt&&shown<20;k++){
         if(qy+rh>bottom) break;
         var h=items[k]; if(!h) continue;
+        var nhb=qRow(gr,r,x,qy,rh); nhb.pl=pli; nhb.item=k; HB_Q.push(nhb);
         drawCover(gr,x,qy,44,4,h,qmeta.album[k]||String(k),qmeta.artkey[k]);
         tL(gr,qmeta.title[k],FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
         tL(gr,qmeta.artist[k],FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
@@ -2116,6 +2137,7 @@ function on_mouse_lbtn_up(x,y){
   if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)){ addFolderToPl(plman.ActivePlaylist); return; }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=firstRowT=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; } }
+  for(i=0;i<HB_Q.length;i++){ if(inRect(x,y,HB_Q[i])){ var q=HB_Q[i]; if(q.q!==undefined) playQueueItem(q.q); else playQueueNext(q.pl,q.item); repaintAll(); return; } }
   for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.songs) playSongsRow(tr.ti); else if(tr.lib) playArtistTrack(tr.block,tr.idx); else playPlaylistItem(tr.pl,tr.item); repaintAll(); return; } }
 }
 function hoverSig(x,y){
@@ -2144,6 +2166,7 @@ function hoverSig(x,y){
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)) return 's';
   for(i=0;i<HB_CARD.length;i++) if(inRect(x,y,HB_CARD[i])) return 'k'+i;
   for(i=0;i<HB_PL.length;i++) if(inRect(x,y,HB_PL[i])) return 'p'+HB_PL[i].i;
+  for(i=0;i<HB_Q.length;i++) if(inRect(x,y,HB_Q[i])) return 'q'+i;
   for(i=0;i<HB_TR.length;i++) if(inRect(x,y,HB_TR[i])) return 'r'+i;
   return '';
 }
