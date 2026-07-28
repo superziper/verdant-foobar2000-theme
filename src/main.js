@@ -577,9 +577,100 @@ var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_
 function openPlaylistMenu(pl,x,y){
   var items=[];
   if(!plman.IsPlaylistLocked(pl)) items.push({label:'Add files...',act:'addfiles'},{label:'Add folder...',act:'addfolder'});
-  items.push({label:'Rename',act:'rename'},{label:'Delete',act:'delete'});
-  ctxMenu={pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y, items:items};
+  items.push({label:'Rename',act:'rename'},{label:'Delete',act:'delete',danger:true});
+  ctxMenu={kind:'pl', pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y, items:items};
   repaintAll();
+}
+// Track-level menu (right-click a row in the playlist view). Locked/auto playlists have no
+// removable rows, so there's nothing to offer -> fall through to JSplitter's own panel menu.
+function openTrackMenu(pl,item,x,y){
+  if(!canEditPl(pl)) return false;
+  ctxMenu={kind:'track', pl:pl, item:item, x:x, y:y,
+           items:[{label:'Remove from this playlist',act:'trkremove',danger:true}]};
+  repaintAll(); return true;
+}
+function canEditPl(pl){
+  if(pl<0) return false;
+  try{ if(plman.IsPlaylistLocked(pl) || plman.IsAutoPlaylist(pl)) return false; }catch(e){}
+  return true;
+}
+// Is this row the track you are currently hearing? Only when playback runs straight off this
+// playlist does the location point at the row, so the index match is used there (it tells
+// duplicates apart). Anything else - the hidden SHUF / ROUTE copies this skin plays through, or
+// another playlist entirely - reports a foreign PlaylistIndex, so fall back to matching the file.
+function isRowPlaying(pl,item,h){
+  if(!fb.IsPlaying && !fb.IsPaused) return false;
+  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+  if(loc && loc.IsValid && loc.PlaylistIndex===pl) return loc.PlaylistItemIndex===item;
+  return sameHandle(h,NP);
+}
+// Removing the playing item does NOT stop foobar - the file plays on to its end - so confirm the
+// fb.Next() hand-off actually took once the playlist edit has settled. If the removed file is
+// still the one playing, push again, and stop if there was simply nowhere to go.
+function verifyAdvanced(h){
+  window.SetTimeout(function(){
+    var np=null; try{ np=fb.GetNowPlaying(); }catch(e){}
+    if(!(fb.IsPlaying||fb.IsPaused) || !sameHandle(np,h)) return;
+    fb.Next();
+    window.SetTimeout(function(){
+      var n2=null; try{ n2=fb.GetNowPlaying(); }catch(e2){}
+      if((fb.IsPlaying||fb.IsPaused) && sameHandle(n2,h)) fb.Stop();
+    },150);
+  },60);
+}
+// Drop the row out of the manual playback queue ("Next in queue" in the right panel). Entries
+// normally carry a playlist reference; ones queued by handle alone (PlaylistIndex < 0) are matched
+// by file instead. Must run BEFORE the playlist removal, while the item indices still line up.
+function dequeueRow(pl,item,h){
+  var q=null; try{ q=plman.GetPlaybackQueueContents(); }catch(e){ q=null; }
+  if(!q || !q.length) return;
+  var kill=[];
+  for(var i=0;i<q.length;i++){
+    var e=q[i];
+    if(e.PlaylistIndex===pl && e.PlaylistItemIndex===item) kill.push(i);
+    else if(e.PlaylistIndex<0 && sameHandle(e.Handle,h)) kill.push(i);
+  }
+  if(kill.length){ try{ plman.RemoveItemsFromPlaybackQueue(kill); }catch(e2){} }
+}
+// With shuffle on, "next up" is read from the hidden shuffled copy, so a track removed from the
+// source would still come round later. Pull every instance of it out of that copy too.
+function removeFromShuffleCopy(pl,h){
+  if(!pbShuffle || !h || pl<0) return;
+  if(plman.GetPlaylistName(pl)!==shufSrcName) return;      // a different playlist is the shuffle source
+  var si=playlistOfName(SHUF); if(si<0) return;
+  var list=null; try{ list=plman.GetPlaylistItems(si); }catch(e){ return; }
+  if(!list || !list.Count) return;
+  var kill=[], i;
+  for(i=0;i<list.Count;i++) if(sameHandle(list[i],h)) kill.push(i);
+  if(!kill.length) return;
+  try{
+    plman.ClearPlaylistSelection(si);
+    for(i=0;i<kill.length;i++) plman.SetPlaylistSelectionSingle(si,kill[i],true);
+    plman.RemovePlaylistSelection(si,false);
+    plman.ClearPlaylistSelection(si);
+  }catch(e){}
+}
+// Remove one row. RemovePlaylistSelection is selection-based, so select just that item first;
+// UndoBackup keeps foobar's own Edit > Undo working. on_playlist_items_removed repaints us.
+// Removing the track that is playing hands playback on first (fb.Next honours the manual queue),
+// so the file is no longer the playing item by the time it leaves the playlist. Paused playback
+// stops instead of advancing - deleting the track you're parked on shouldn't start audio.
+function removeTrackFromPl(pl,item){
+  if(!canEditPl(pl) || item<0 || item>=plman.PlaylistItemCount(pl)) return;
+  var items=getItems(pl), h=(items && item<items.Count)?items[item]:null;
+  var playing=isRowPlaying(pl,item,h), wasPaused=fb.IsPaused;
+  dequeueRow(pl,item,h);
+  if(playing){ if(wasPaused) fb.Stop(); else fb.Next(); }
+  removeFromShuffleCopy(pl,h);
+  try{
+    plman.UndoBackup(pl);
+    plman.ClearPlaylistSelection(pl);
+    plman.SetPlaylistSelectionSingle(pl,item,true);
+    plman.RemovePlaylistSelection(pl,false);
+    plman.ClearPlaylistSelection(pl);
+  }catch(e){}
+  if(playing && !wasPaused) verifyAdvanced(h);   // the row is gone now: make sure playback really moved on
+  invalidateItems(); updateNP(); repaintAll();
 }
 function startRename(pl){ renameEdit={pl:pl, text:plman.GetPlaylistName(pl)}; ctxMenu=null; caretOn=true; startCaret(); applyKeyMode(); repaintAll(); }
 function commitRename(){ if(!renameEdit) return; var t=renameEdit.text.replace(/^\s+|\s+$/g,''); if(t) plman.RenamePlaylist(renameEdit.pl,t); renameEdit=null; applyKeyMode(); repaintAll(); }
@@ -833,15 +924,19 @@ function drawOverlays(gr){
     RENAME_HB={panel:{x0:rx0,y0:ry0,x1:rx0+rw,y1:ry0+rhh},save:{x0:dx,y0:by,x1:dx+bw,y1:by+bh},cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},canSave:canSave};
   }
   if(ctxMenu){
-    var iw=190, ih=42, pad=6, h=ctxMenu.items.length*ih+pad*2;
-    var mx=Math.min(ctxMenu.x,W-iw-10), my=Math.min(ctxMenu.y,H-h-10);
-    gr.FillSolidRect(mx+3,my+4,iw,h,RGBA(0,0,0,120));       // soft shadow
-    gr.FillRoundRect(mx,my,iw,h,8,8,RGB(43,43,43));
-    for(var i=0;i<ctxMenu.items.length;i++){
-      var iy=my+pad+i*ih, it=ctxMenu.items[i];
-      if(hv(mx,iy,mx+iw,iy+ih)) gr.FillRoundRect(mx+4,iy,iw-8,ih,5,5,RGBA(255,255,255,20));
-      tL(gr,it.label,FONT.pl,(it.act==='delete')?RGB(240,96,96):COL.text,mx+16,iy,iw-24,ih);
-      CTX_HB.push({x0:mx,y0:iy,x1:mx+iw,y1:iy+ih,act:it.act});
+    var ih=42, pad=6, i, it, iw=190;
+    // width follows the longest label (16px left inset + 24px breathing room on the right)
+    for(i=0;i<ctxMenu.items.length;i++) iw=Math.max(iw,Math.round(gr.CalcTextWidth(ctxMenu.items[i].label,FONT.pl))+40);
+    iw=Math.min(iw,Math.max(120,W-20));
+    var h=ctxMenu.items.length*ih+pad*2;
+    var mnx=Math.max(10,Math.min(ctxMenu.x,W-iw-10)), mny=Math.max(10,Math.min(ctxMenu.y,H-h-10));
+    gr.FillSolidRect(mnx+3,mny+4,iw,h,RGBA(0,0,0,120));       // soft shadow
+    gr.FillRoundRect(mnx,mny,iw,h,8,8,RGB(43,43,43));
+    for(i=0;i<ctxMenu.items.length;i++){
+      var iy=mny+pad+i*ih; it=ctxMenu.items[i];
+      if(hv(mnx,iy,mnx+iw,iy+ih)) gr.FillRoundRect(mnx+4,iy,iw-8,ih,5,5,RGBA(255,255,255,20));
+      tL(gr,it.label,FONT.pl,it.danger?RGB(240,96,96):COL.text,mnx+16,iy,iw-24,ih);
+      CTX_HB.push({x0:mnx,y0:iy,x1:mnx+iw,y1:iy+ih,act:it.act});
     }
   }
   if(confirmDel){
@@ -1057,8 +1152,10 @@ function drawPlaylist(gr,r){
     var h=items[j]; if(!h){ continue; }
     var isPlaying=(playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j)
                   || (shufHere && sameHandle(h,NP));   // playing from the hidden shuffle copy of this playlist
-    var isHover=hv(r.x,ry,r.x+r.w,ry+rh);
-    if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,COL.rowHover);
+    // the row whose context menu is open stays lit (brighter than hover) so the target is unambiguous
+    var isMenuRow=!!(ctxMenu && ctxMenu.kind==='track' && ctxMenu.pl===p.i && ctxMenu.item===j);
+    var isHover=hv(r.x,ry,r.x+r.w,ry+rh)||isMenuRow;
+    if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,isMenuRow?COL.rowActive:COL.rowHover);
     var titleCol=isPlaying?COL.green:COL.text;
     if(isHover) drawIcon(gr,'play',COL.text,lx,ry,numW,rh,14);
     else tL(gr,String(j+1),FONT.rowNum,isPlaying?COL.green:COL.text2,lx,ry,numW,rh);
@@ -1792,6 +1889,8 @@ function on_mouse_lbtn_down(x,y){
 function on_mouse_rbtn_up(x,y){
   if(ctxMenu||confirmDel||renameEdit) return true;   // a modal is open: swallow
   var i;
+  // playlist-view track rows carry {pl,item}; rows in All Songs / artist / search views don't
+  if(view==='playlist'){ for(i=0;i<HB_TR.length;i++){ if(HB_TR[i].pl!==undefined && inRect(x,y,HB_TR[i])){ return openTrackMenu(HB_TR[i].pl,HB_TR[i].item,x,y); } } }
   for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ openPlaylistMenu(HB_PL[i].i,x,y); return true; } }
   for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i]) && HB_CARD[i].kind==='pl'){ openPlaylistMenu(HB_CARD[i].id,x,y); return true; } }
   return false;   // elsewhere: let JSplitter's own panel menu through (Reload / Configure / Properties)
@@ -1850,7 +1949,8 @@ function on_mouse_lbtn_up(x,y){
   }
   if(ctxMenu){
     var ci; for(ci=0;ci<CTX_HB.length;ci++){ if(inRect(x,y,CTX_HB[ci])){
-      var act=CTX_HB[ci].act, pl=ctxMenu.pl, nm=ctxMenu.name;
+      var act=CTX_HB[ci].act, pl=ctxMenu.pl, nm=ctxMenu.name, itm=ctxMenu.item;
+      if(act==='trkremove'){ ctxMenu=null; removeTrackFromPl(pl,itm); return; }
       // navigate to the target first, so the tracks land somewhere the user can actually see
       if(act==='addfiles'||act==='addfolder'){
         ctxMenu=null; firstRow=firstRowT=0; view='playlist'; repaintAll();
