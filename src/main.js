@@ -569,10 +569,11 @@ var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, 
 // smooth (eased) scrolling for the continuous lists: animate the rendered position toward a target
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var moving=false, mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll;
+  var moving=false, mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll;
   if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; moving=true; mm=true; } else firstRow=firstRowT;
   if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; moving=true; mm=true; } else homeScroll=homeScrollT;
   if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; moving=true; mm=true; } else songsScroll=songsScrollT;
+  if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; moving=true; mm=true; } else searchScroll=searchScrollT;
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; moving=true; nm=true; } else navScroll=navScrollT;
   if(mm) repaintMain(); if(nm) repaintNav();   // repaint only the region that's scrolling -> high fps
   if(!moving) stopScrollAnim();
@@ -779,6 +780,7 @@ function setScroll(y){
   if(view==='playlist'){ firstRow=firstRowT=Math.round(frac*SB.maxPx); }    // continuous (pixels); sync target so easing doesn't fight the drag
   else if(view==='home'){ homeScroll=homeScrollT=Math.round(frac*SB.maxPx); }   // continuous (pixels)
   else if(view==='songs'){ songsScroll=songsScrollT=Math.round(frac*SB.maxPx); }
+  else if(view==='search'){ searchScroll=searchScrollT=Math.round(frac*SB.maxPx); }
   repaintMain();
 }
 // Dedicated scrollbar for the sidebar playlist list (independent of the main view).
@@ -879,8 +881,8 @@ function playQueueItem(qi){
 }
 // is the now-playing track this playlist's shuffled source? (for highlighting the right row)
 function npIsShuffleOf(name){ return pbShuffle && NP && name===shufSrcName; }
-var searchQuery='', searchScroll=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
-var HOME_MAXROW=0, ART_MAXBLOCK=0;
+var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
+var HOME_MAXROW=0, ART_MAXBLOCK=0, SEARCH_MAXPX=0;
 // Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
 var plScroll=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
 function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
@@ -1674,40 +1676,72 @@ function drawSearchBox(gr,r){
   }
   if(caretOn) gr.FillSolidRect(caretX,caretY,2,caretH,empty?COL.text2:COL.text);
 }
+/* Artists + Songs are one continuously-scrolled document (same model as the home artist grid):
+   pixel scroll, eased via scrollTick, hover-revealed scrollbar. The search box stays pinned --
+   content is drawn first and allowed to overflow upward, then the band above the viewport is
+   painted over and the box redrawn on top, exactly how drawHome masks its grid. */
 function drawSearch(gr,r){
   HB_CARD=[]; HB_TR=[];
   computeSearch();
-  var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
+  var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, i;
   var boxH=SBOX_H, boxY=r.y+SBOX_TOP;
-  drawSearchBox(gr,r);
-  var empty=!searchQuery.length;
-  if(empty){ tL(gr,'Search your playlists and library.',FONT.qArtist,COL.text3,x0+2,boxY+boxH+18,w,18); return; }
-  var y=boxY+boxH+26, any=false;
-  if(searchArts.length){
-    any=true;
-    tL(gr,'Artists',FONT.sect2,COL.text,x0,y,w,28); y+=42;
-    var gap=16,cardW=176,cols=Math.max(2,Math.floor((w+gap)/(cardW+gap))); cardW=Math.floor((w-gap*(cols-1))/cols);
-    var cardH=cardW+56;
-    for(i=0;i<searchArts.length;i++) drawArtistCard(gr,x0+(i%cols)*(cardW+gap),y+Math.floor(i/cols)*(cardH+8),cardW,searchArts[i]);
-    y+=Math.ceil(searchArts.length/cols)*(cardH+8)+18;
+  if(!searchQuery.length){
+    drawSearchBox(gr,r);
+    tL(gr,'Search your playlists and library.',FONT.qArtist,COL.text3,x0+2,boxY+boxH+18,w,18);
+    return;
   }
+  if(!searchArts.length && !searchTrks.length){
+    drawSearchBox(gr,r);
+    tC(gr,'No results found for "'+searchQuery+'"',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2),r.w,24);
+    return;
+  }
+  var top=boxY+boxH+26, cropY=r.y+r.h, viewH=cropY-top;
+  // ---- measure the document, then clamp the scroll to it ----
+  var gap=16, cardW=176, cols=Math.max(2,Math.floor((w+gap)/(cardW+gap)));
+  cardW=Math.floor((w-gap*(cols-1))/cols);
+  var cardH=cardW+56, rh=56, durW=64;
+  var artsH=searchArts.length?(42+Math.ceil(searchArts.length/cols)*(cardH+8)+18):0;
+  var contentH=artsH+(searchTrks.length?(38+searchTrks.length*rh):0);
+  var maxPx=Math.max(0,contentH-viewH);
+  SEARCH_MAXPX=maxPx;
+  if(searchScroll>maxPx) searchScroll=maxPx; if(searchScroll<0) searchScroll=0;
+  if(searchScrollT>maxPx) searchScrollT=maxPx; if(searchScrollT<0) searchScrollT=0;
+  var cy=top-searchScroll;
+  // ---- artists ----
+  if(searchArts.length){
+    tL(gr,'Artists',FONT.sect2,COL.text,x0,cy,w,28);
+    var gy=cy+42;
+    for(i=0;i<searchArts.length;i++){
+      var ay=gy+Math.floor(i/cols)*(cardH+8);
+      if(ay>=cropY) break;
+      if(ay+cardH<=top) continue;
+      drawArtistCard(gr,x0+(i%cols)*(cardW+gap),ay,cardW,searchArts[i],top,cropY);
+    }
+    cy+=artsH;
+  }
+  // ---- songs ----
   if(searchTrks.length){
-    any=true;
-    tL(gr,'Songs',FONT.sect2,COL.text,x0,y,w,28); y+=38;
-    var rh=56, durW=64, visible=Math.max(0,Math.floor((bottom-y)/rh));
-    if(searchScroll>Math.max(0,searchTrks.length-visible)) searchScroll=Math.max(0,searchTrks.length-visible);
-    for(i=0;i<visible;i++){
-      var k=searchScroll+i; if(k>=searchTrks.length) break;
-      var tr=searchTrks[k], ry=y+i*rh;
-      if(hv(r.x,ry,r.x+r.w,ry+rh)) gr.FillRoundRect(x0-8,ry,w+16,rh,4,4,COL.rowHover);
+    tL(gr,'Songs',FONT.sect2,COL.text,x0,cy,w,28);
+    var ry0=cy+38;
+    for(i=0;i<searchTrks.length;i++){
+      var ry=ry0+i*rh;
+      if(ry>=cropY) break;
+      if(ry+rh<=top) continue;
+      var tr=searchTrks[i];
+      if(hv(r.x,Math.max(ry,top),r.x+r.w,Math.min(ry+rh,cropY))) gr.FillRoundRect(x0-8,ry,w+16,rh,4,4,COL.rowHover);
       drawCover(gr,x0,ry+8,40,4,tr.h,tr.album||tr.title);
       tL(gr,tr.title,FONT.rowTitle,COL.text,x0+52,ry+8,w-52-durW,20);
       tL(gr,tr.artist+(tr.album?('  '+CH_BULL+'  '+tr.album):''),FONT.rowArtist,COL.text2,x0+52,ry+30,w-52-durW,16);
       tR(gr,tr.len,FONT.rowCell,COL.text2,r.x+r.w-pad-durW,ry,durW,rh);
-      HB_TR.push({x0:x0-8,y0:ry,x1:r.x+r.w-pad+8,y1:ry+rh,srch:true,idx:k});
+      var hy0=Math.max(ry,top), hy1=Math.min(ry+rh,cropY);   // clip the click target to the viewport
+      if(hy1>hy0) HB_TR.push({x0:x0-8,y0:hy0,x1:r.x+r.w-pad+8,y1:hy1,srch:true,idx:i});
     }
   }
-  if(!any) tC(gr,'No results found for "'+searchQuery+'"',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2),r.w,24);
+  // ---- mask the overflow, re-pin the search box, then the scrollbar ----
+  gr.FillSolidRect(r.x,r.y,r.w,top-r.y,COL.base);
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);
+  drawSearchBox(gr,r);
+  drawScrollbar(gr,x0+w+8,top,viewH,searchScroll,maxPx,viewH,contentH,hv(x0,top,x0+w+16,cropY)||drag==='scroll');
 }
 // hover cue + click target for one queue row; rows are rh apart so the boxes tile exactly
 function qRow(gr,r,x,qy,rh){
@@ -2187,6 +2221,7 @@ function scrollSection(x,y){
     if(view==='home') return (y>=HOME_SHELF_Y0 && y<HOME_SHELF_Y1+16)?'shelf':'arts';
     if(view==='playlist') return 'pl';
     if(view==='songs') return 'songs';
+    if(view==='search') return 'srch';
   }
   return '';
 }
@@ -2203,7 +2238,7 @@ function on_char(code){
   if(code===8) searchQuery=searchQuery.slice(0,-1);
   else if(code===27) searchQuery='';
   else if(code>=32) searchQuery+=String.fromCharCode(code);
-  searchScroll=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
+  searchScroll=searchScrollT=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
 }
 function on_mouse_wheel(step){
   if(fsMode){ fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return; }
@@ -2217,7 +2252,7 @@ function on_mouse_wheel(step){
     return;
   }
   else if(view==='songs'){ songsScrollT-=step*WHEEL_PX; if(songsScrollT<0)songsScrollT=0; if(songsScrollT>SONGS_MAXPX)songsScrollT=SONGS_MAXPX; startScrollAnim(); return; }   // smooth, like the playlist list
-  else if(view==='search'){ searchScroll-=step*3; if(searchScroll<0)searchScroll=0; repaintAll(); return; }
+  else if(view==='search'){ searchScrollT-=step*WHEEL_PX; if(searchScrollT<0)searchScrollT=0; if(searchScrollT>SEARCH_MAXPX)searchScrollT=SEARCH_MAXPX; startScrollAnim(); return; }   // smooth, like home
   else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; repaintAll(); return; }
   firstRowT-=step*WHEEL_PX; if(firstRowT<0)firstRowT=0; if(firstRowT>PL_MAXPX)firstRowT=PL_MAXPX; startScrollAnim();   // playlist songs: smooth
 }
