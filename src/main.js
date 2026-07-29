@@ -140,7 +140,13 @@ function hitIdx(list,x,y){ for(var i=0;i<list.length;i++) if(inRect(x,y,list[i])
 function hit(list,x,y){ var i=hitIdx(list,x,y); return i<0?null:list[i]; }
 function labelOf(list,v,dflt){ for(var i=0;i<list.length;i++) if(list[i][1]===v) return list[i][0]; return dflt; }
 function playingLoc(){ return plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null; }
-function visiblePlaylists(){ var a=[]; for(var i=0;i<plman.PlaylistCount;i++) if(!isHiddenPl(plman.GetPlaylistName(i))) a.push(i); return a; }
+/* Playlist name/count are read once per playlist instead of once per card per frame -- these
+   are interop calls into foobar, and the draw loops ran dozens of them every paint. Cleared by
+   invalidateItems(), which every playlist callback already goes through. */
+var plNameCache={}, plCountCache={};
+function plName(pi){ if(!plNameCache.hasOwnProperty(pi)) plNameCache[pi]=plman.GetPlaylistName(pi); return plNameCache[pi]; }
+function plCount(pi){ if(!plCountCache.hasOwnProperty(pi)) plCountCache[pi]=plman.PlaylistItemCount(pi); return plCountCache[pi]; }
+function visiblePlaylists(){ var a=[]; for(var i=0;i<plman.PlaylistCount;i++) if(!isHiddenPl(plName(i))) a.push(i); return a; }
 function vol2pos(v){ return Math.pow(2, v/10); }                                   // dB(-100..0) -> 0..1
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
@@ -510,6 +516,46 @@ function drawPlCover(gr,x,y,size,rad,pi,seed){
   if(cov.list.length>=4){ var mi=mosaicImg(cov.list,seed,size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
   drawRounded(gr,x,y,size,rad,cov.single,seed);
 }
+/* Playlist cards are identical between playlist changes, so each is rendered once into a bitmap
+   and blitted thereafter -- that removes the rounded rects, cover blits and text layout from
+   every frame. Only the resting variant is cached: exactly one card is hovered at a time, so
+   that one is painted live rather than doubling the cache.
+   Art arrives asynchronously, so a card is not cached until its cover is ready -- the same guard
+   maskedArt and mosaicImg use, without which a card would keep its placeholder forever. */
+var plCardCache={};
+function plCoverReady(pi){
+  var cov=plCovers(pi), i, h;
+  if(cov.list.length>=4){
+    for(i=0;i<4;i++){ h=cov.list[i]; if(h && !artLoaded(albKey(h))) return false; }
+    return true;
+  }
+  h=cov.single; return !h || artLoaded(albKey(h));
+}
+function paintPlCard(gr,x,y,w,pi,hov){
+  gr.FillRoundRect(x,y,w,w+56,8,8,hov?RGB(40,40,40):COL.elev);
+  var cs=w-24;
+  drawPlCover(gr,x+12,y+12,cs,6,pi,plName(pi));
+  tL(gr,plName(pi),FONT.card,COL.text,x+12,y+cs+18,w-24-(hov?26:0),20);
+  tL(gr,plCount(pi)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
+}
+function renderPlCard(pi,w,hov){
+  var im=null;
+  try{
+    im=gdi.CreateImage(w,w+56); var g=im.GetGraphics();
+    g.SetSmoothingMode(2);
+    g.FillSolidRect(0,0,w,w+56,COL.base);   // the card's rounded corners must reveal the panel bg
+    paintPlCard(g,0,0,w,pi,hov);
+    im.ReleaseGraphics(g);
+  }catch(e){ im=null; }
+  return im;
+}
+function plCardImg(pi,w){
+  var key=pi+'|'+w;
+  if(plCardCache.hasOwnProperty(key)){ if(PERF) perfHit++; return plCardCache[key]; }
+  if(PERF) perfMiss++;
+  if(!plCoverReady(pi)) return null;        // not cached yet -> retried next frame
+  plCardCache[key]=renderPlCard(pi,w,false); return plCardCache[key];
+}
 /* "All Songs" cover: 4 distinct albums sampled ACROSS the library, not just the first few */
 var libCovCache=null, libCount_=-1;
 function libCount(){ if(libCount_<0){ var l=null; try{ l=fb.GetLibraryItems(); }catch(e){} libCount_=l?l.Count:0; } return libCount_; }
@@ -539,12 +585,38 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // Repaint scope flags. dirtyAll (sticky) forces a full paint; partial flags accumulate.
 // A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint serviced while a
 // partial flag is pending can't blank the rest of the window.
-var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false;
-function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=false; }
+var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false, dirtyTitle=false;
+function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=dirtyTitle=false; }
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
-function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); }
+/* Main's views draw the row/card straddling their crop line at full height and mask only the
+   10px gutter below it (see the FillSolidRect(r.x,cropY,...) in each), so the remainder lands on
+   the player bar. drawBar runs after main in the partial path, so pairing them covers it -- and
+   it is far cheaper than the full-window repaint that used to hide this. */
+function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); repaintBar(); }
 function repaintNav(){ dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
-var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=180;
+// drawNav paints both nav cards, so a hover crossing between them must invalidate their union
+function repaintNavAll(){ dirtyNav=true; window.RepaintRect(R.navTop.x,R.navTop.y,R.navTop.w,(R.navLib.y+R.navLib.h)-R.navTop.y); }
+function repaintQueue(){ dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+function repaintTitle(){ dirtyTitle=true; window.RepaintRect(0,0,W,TBH); }
+/* A hover only changes one panel's appearance, so repaint that panel rather than the whole
+   window. Hitbox ownership is cleanly panel-aligned (HB_PL/HB_HOME/SBN -> nav, HB_CARD/HB_TR/
+   SB/SBH -> main, HB_Q/HB_TABS -> queue, HB_CTRL -> bar, HB_MENU/HB_CAP -> title), so the
+   cursor position alone picks the right one. */
+function hoverZone(x,y){
+  if(y<TBH) return 'title';
+  if(R.barY!==undefined && y>=R.barY) return 'bar';
+  if(R.queue && x>=R.queue.x) return 'queue';
+  if(R.main && x>=R.main.x) return 'main';
+  return 'nav';
+}
+function repaintZone(z){
+  if(z==='main') repaintMain();
+  else if(z==='nav') repaintNavAll();
+  else if(z==='queue') repaintQueue();
+  else if(z==='bar') repaintBar();
+  else if(z==='title') repaintTitle();
+}
+var firstRow=0, hoverKey='', scrollKey='', hoverZoneKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=180;
 // eased scrolling: animate each rendered position toward its target, repainting only the moving region
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
@@ -843,14 +915,11 @@ var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=nu
 var HOME_MAXROW=0, ART_MAXBLOCK=0, SEARCH_MAXPX=0;
 // Home "Your Playlists" horizontal shelf: pixel scroll offset + eased target, max, wheel hit-band, h-scrollbar.
 var plScroll=0, plScrollT=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
-var SHELF_MASK=6;   // slack around the shelf masks: soaks up antialiased card edges
 // The shelf glides freely but always *targets* a card boundary, so the leftmost card keeps its
 // rounded edge instead of being cut mid-body (COL.elev against COL.base reads as a seam).
 // HOME_STRIDE is published by drawHome, which is the only place the card pitch is known.
 var HOME_STRIDE=0;
 function snapShelf(px){ var st=HOME_STRIDE||1; return clampPx(Math.round(px/st)*st,HOME_PLMAX); }
-var SHELF_DEBUG=false;   // set true to tint the shelf masks and see their real extent
-var DBG_L=RGB(255,0,255), DBG_P=RGB(0,255,0), DBG_R=RGB(0,255,255);
 function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
   if(contentW<=viewW || w<=6 || !show){ SBH=null; return; }   // hidden until the section is hovered
   var sh=5;
@@ -884,7 +953,7 @@ function fmtDur(s){
   if(m>0) return m+' min';
   return s+' sec';
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; }
 
 /* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
    row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */
@@ -925,7 +994,7 @@ function layout(){
   capW=-1; applyCaption();
   applyKeyMode();
 }
-function on_size(w,h){ W=w; H=h; layout(); }
+function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; }   // card bitmaps are keyed by width
 
 function activePl(){ var i=plman.ActivePlaylist; return {i:i, name:i>=0?plman.GetPlaylistName(i):'', count:i>=0?plman.PlaylistItemCount(i):0}; }
 function updateNP(){
@@ -937,11 +1006,23 @@ function updateNP(){
 function repaintBar(){ if(fsMode){ repaintAll(); return; } dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
 
 /* ------------------------- paint ------------------------- */
-function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
+/* FillRoundRect rasterises an antialiased path over the panel's whole area -- ~1.7Mpx for the
+   main panel, on every repaint of every panel, and it showed up as ~8ms of each frame that no
+   content loop accounted for. A flat fill plus the four pre-rendered corner stamps buildCorners
+   already makes is visually identical (straight edges have nothing to antialias) and far cheaper.
+   The stamps are black, which is correct because every panel sits on the black canvas. */
+function panelBg(gr,r,c){
+  var rad=M.radius; if(!CORN) CORN=buildCorners(rad);
+  gr.FillSolidRect(r.x,r.y,r.w,r.h,c);
+  gr.DrawImage(CORN.tl,r.x,r.y,rad,rad,0,0,rad,rad);
+  gr.DrawImage(CORN.tr,r.x+r.w-rad,r.y,rad,rad,0,0,rad,rad);
+  gr.DrawImage(CORN.bl,r.x,r.y+r.h-rad,rad,rad,0,0,rad,rad);
+  gr.DrawImage(CORN.br,r.x+r.w-rad,r.y+r.h-rad,rad,rad,0,0,rad,rad);
+}
 // carve rounded corners over already-drawn square content: blit black corner masks (no clip API)
 var CORN=null;
 function buildCorners(rad){
-  var specs={tl:[0,0],tr:[-rad,0]}, q={}, key;
+  var specs={tl:[0,0],tr:[-rad,0],bl:[0,-rad],br:[-rad,-rad]}, q={}, key;
   for(key in specs){
     var im=gdi.CreateImage(rad,rad), g=im.GetGraphics(); g.FillSolidRect(0,0,rad,rad,COL.black); im.ReleaseGraphics(g);
     var mk=gdi.CreateImage(rad,rad), mg=mk.GetGraphics();
@@ -1039,10 +1120,45 @@ function drawDupPrompt(gr){
   var by=cy+ch-22-PILL_H, x2=cx+cw-28-w2, x1=x2-gap-w1;
   DUP_HB={ keep:drawPill(gr,x1,by,w1,'Add anyway',false), skip:drawPill(gr,x2,by,w2,'Skip duplicates',true) };
 }
+/* Paint timing. PERF=true logs to foobar's Console (View > Console) every 30 frames, so a
+   change can be measured instead of guessed at. paintFrame has several early returns, hence
+   the wrapper rather than inline timing. */
+var PERF=false, perfN=0, perfSum=0, perfMax=0, perfTot=0, perfLines=[], PERF_LOG='C:\\tmp\\fb2k-perf.log';
+/* Per-panel accumulator. Date.now() is coarse (~1-15ms), so times are summed across the whole
+   30-frame window and averaged, which washes the granularity out. */
+var perfP={}, perfHit=0, perfMiss=0;
+function pt(name,fn){
+  if(!PERF){ fn(); return; }
+  var t=Date.now(); fn(); perfP[name]=(perfP[name]||0)+(Date.now()-t);
+}
+function perfBreak(n){
+  var k, out=[];
+  for(k in perfP) if(perfP[k]>0) out.push(k+' '+(perfP[k]/n).toFixed(1));
+  perfP={};
+  return out.length?('   [ '+out.join('  ')+' ]'):'';
+}
 function on_paint(gr){
+  if(!PERF){ paintFrame(gr); return; }
+  var t0=Date.now(); paintFrame(gr); var d=Date.now()-t0;
+  perfSum+=d; if(d>perfMax) perfMax=d;
+  if(++perfN>=30){
+    perfTot+=perfN;
+    var line='frame '+perfTot+'  avg '+(perfSum/perfN).toFixed(1)+'ms  max '+perfMax+'ms  view='+view+perfBreak(perfN)
+      +'  card hit '+perfHit+' miss '+perfMiss+'  artists '+(artistList?artistList.length:0)+'  cached '+artCardN;
+    perfHit=0; perfMiss=0;
+    console.log(line);
+    // WriteTextFile has no append mode (3rd arg is write_bom), so keep the log in memory and
+    // rewrite it whole -- otherwise each flush clobbers the previous samples
+    perfLines.push(line); if(perfLines.length>80) perfLines.shift();
+    try{ utils.WriteTextFile(PERF_LOG,perfLines.join('\r\n'),false); }catch(e){}
+    perfN=0; perfSum=0; perfMax=0;
+  }
+}
+function paintFrame(gr){
   gr.SetSmoothingMode(2);
+  gr.SetInterpolationMode(5);   // NearestNeighbor: every DrawImage here is 1:1, so filtering is pure cost
   if(fsMode){ clearDirty(); HB_DOTS=[]; drawFullscreen(gr); return; }
-  var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav;
+  var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav||dirtyTitle;
   // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over the
   // region it redraws (the bar's 1 Hz repaint would flash back to full brightness). While an
   // overlay owns the screen, every paint takes the full path.
@@ -1051,23 +1167,24 @@ function on_paint(gr){
     clearDirty();
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
-    drawTitleBar(gr);
+    pt('title',function(){ drawTitleBar(gr); });
     // main before nav: the home shelf's leftmost card is drawn partly outside the panel
     // (continuous scroll), so nav must repaint over that bleed -- same reason queue follows main
-    drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w);
-    drawNav(gr);
-    drawQueue(gr);
-    drawBar(gr);
-    drawOverlays(gr);
+    pt('main',function(){ drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); });
+    pt('nav',function(){ drawNav(gr); });
+    pt('queue',function(){ drawQueue(gr); });
+    pt('bar',function(){ drawBar(gr); });
+    pt('ovl',function(){ drawOverlays(gr); });
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
+  if(dirtyTitle){ dirtyTitle=false; pt('title',function(){ drawTitleBar(gr); }); }
   if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
-  if(dirtyMain){ dirtyMain=false; drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); }
-  if(dirtyNav){ dirtyNav=false; drawNav(gr); }
-  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
+  if(dirtyMain){ dirtyMain=false; pt('main',function(){ drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); }); }
+  if(dirtyNav){ dirtyNav=false; pt('nav',function(){ drawNav(gr); }); }
+  if(dirtyQueue){ dirtyQueue=false; pt('queue',function(){ drawQueue(gr); }); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
-  if(dirtyBar){ dirtyBar=false; drawBar(gr); }
+  if(dirtyBar){ dirtyBar=false; pt('bar',function(){ drawBar(gr); }); }
 }
 
 function winMaxed(){ if(!UIWizard) return false; try{ return UIWizard.WindowState===1; }catch(e){ return false; } }
@@ -1144,12 +1261,12 @@ function drawNav(gr){
   }
   for(var k=Math.floor(navScroll/rh); k<pls.length; k++){
     var ry=listTop+k*rh-navScroll; if(ry>=cropY) break;
-    var i2=pls[k], nm=plman.GetPlaylistName(i2);
+    var i2=pls[k], nm=plName(i2);
     // clamp hover + click targets to the visible band: a row scrolled under the pinned
     // "All Songs" header is painted over, so it must not answer the mouse there either
     var hy0=Math.max(ry,listTop), hy1=Math.min(ry+rh,cropY);
     var rowHov=(hy1>hy0) && hv(R.navLib.x,hy0,R.navLib.x+R.navLib.w,hy1);
-    drawNavRow(gr,ry,rh,view==='playlist'&&i2===active,rowHov,i2,nm,plman.PlaylistItemCount(i2)+' songs');
+    drawNavRow(gr,ry,rh,view==='playlist'&&i2===active,rowHov,i2,nm,plCount(i2)+' songs');
     if(rowHov && ry>=listTop) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
     if(hy1>hy0) HB_PL.push({x0:R.navLib.x,y0:hy0,x1:R.navLib.x+R.navLib.w,y1:hy1,i:i2});
   }
@@ -1192,7 +1309,7 @@ function drawMain(gr){
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
-  var r=R.main; panelBg(gr,r,COL.base);
+  var r=R.main; pt('pbg',function(){ panelBg(gr,r,COL.base); });
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
   if(view==='artist'){ drawArtist(gr,r); return; }
@@ -1356,29 +1473,76 @@ function drawPill(gr,x,y,w,label,primary){
   return hb;
 }
 
+/* Nothing may be painted outside [clipL,clipR): RepaintRect does not clip drawing, so anything
+   spilling past the panel would be stranded on the neighbouring one by a panel-scoped repaint.
+   Edge cards are therefore blitted through a bitmap with a source rect instead of being drawn
+   wide and masked over afterwards. Hover and hit target clip to the same band. */
 function drawPlaylistCard(gr,x,y,w,i,clipL,clipR){
-  // hover + click target clip to the shelf viewport: a card half-scrolled past the edge
-  // must not stay hoverable in the gutter it bleeds into
+  var h=w+56;
   var hx0=(clipL!==undefined&&x<clipL)?clipL:x, hx1=(clipR!==undefined&&x+w>clipR)?clipR:x+w;
-  var cardHov=hx1>hx0 && hv(hx0,y,hx1,y+w+56);
-  gr.FillRoundRect(x,y,w,w+56,8,8,cardHov?RGB(40,40,40):COL.elev);
-  var cs=w-24;
-  drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
-  tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24-(cardHov?26:0),20);
-  tL(gr,plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
-  if(cardHov) drawDots(gr,x+w-32,y+cs+16,i);
-  if(hx1>hx0) HB_CARD.push({x0:hx0,y0:y,x1:hx1,y1:y+w+56,kind:'pl',id:i});
+  if(hx1<=hx0) return;
+  var cardHov=hv(hx0,y,hx1,y+h), clipped=(hx0>x)||(hx1<x+w);
+  var im=cardHov?null:plCardImg(i,w);
+  if(!im && clipped) im=renderPlCard(i,w,cardHov);   // hovered, or art still loading, at an edge
+  if(im) gr.DrawImage(im,hx0,y,hx1-hx0,h,hx0-x,0,hx1-hx0,h);
+  else paintPlCard(gr,x,y,w,i,cardHov);
+  var dx=x+w-32;
+  if(cardHov && dx>=hx0 && dx+32<=hx1) drawDots(gr,dx,y+(w-24)+16,i);
+  HB_CARD.push({x0:hx0,y0:y,x1:hx1,y1:y+h,kind:'pl',id:i});
 }
-function drawArtistCard(gr,x,y,w,a,clipTop,clipBot){
-  gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
+function paintArtistCard(gr,x,y,w,a,hov){
+  gr.FillRoundRect(x,y,w,w+56,8,8,hov?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawCircle(gr,x+12,y+12,cs,artistCover(a.name,a.handle),a.name);
   tC(gr,a.name,FONT.card,COL.text,x+12,y+cs+18,w-24,20);
   tC(gr,'Artist',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
-  var hy0=y, hy1=y+w+56;                                   // clip the click target to the scroll viewport
-  if(clipTop!==undefined && hy0<clipTop) hy0=clipTop;
-  if(clipBot!==undefined && hy1>clipBot) hy1=clipBot;
-  if(hy1>hy0) HB_CARD.push({x0:x,y0:hy0,x1:x+w,y1:hy1,kind:'artist',id:a.name});
+}
+/* The artist grid is the bulk of a home frame -- ~30 cards on a wide window, each an antialiased
+   rounded rect, a masked circular cover and two centred labels, all redrawn every paint. Cache
+   them like playlist cards. Unlike playlists a library can have thousands of artists, so the
+   cache is capped and dropped wholesale when it grows past the cap. */
+var artCardCache={}, artCardN=0, ART_CARD_CAP=120, artTick=0;
+/* Least-recently-used eviction. Wiping the whole cache on overflow meant the very next frame had
+   to re-render every visible card at once -- the worst possible moment, since overflow happens
+   while scrolling. Dropping the oldest half instead keeps what is on screen and costs only the
+   newly-revealed row. */
+function evictArtCards(){
+  var keys=[], k, i;
+  for(k in artCardCache) keys.push(k);
+  keys.sort(function(p,q){ return artCardCache[p].t-artCardCache[q].t; });
+  var n=Math.floor(keys.length/2);
+  for(i=0;i<n;i++) delete artCardCache[keys[i]];
+  artCardN=keys.length-n;
+}
+function artCardImg(a,w){
+  var key=a.name+'|'+w, e=artCardCache[key];
+  if(e){ e.t=++artTick; if(PERF) perfHit++; return e.img; }
+  if(PERF) perfMiss++;
+  var ah=artistCover(a.name,a.handle);
+  if(ah && !artLoaded(albKey(ah))) return null;      // art still loading -> don't bake a placeholder
+  if(artCardN>=ART_CARD_CAP) evictArtCards();
+  var im=null;
+  try{
+    im=gdi.CreateImage(w,w+56); var g=im.GetGraphics();
+    g.SetSmoothingMode(2);
+    g.FillSolidRect(0,0,w,w+56,COL.base);
+    paintArtistCard(g,0,0,w,a,false);
+    im.ReleaseGraphics(g);
+  }catch(e2){ im=null; }
+  artCardCache[key]={img:im,t:++artTick}; artCardN++; return im;
+}
+function drawArtistCard(gr,x,y,w,a,clipTop,clipBot){
+  var h=w+56;
+  // clip drawing and the click target to the scroll viewport
+  var vy0=(clipTop!==undefined&&y<clipTop)?clipTop:y, vy1=(clipBot!==undefined&&y+h>clipBot)?clipBot:y+h;
+  if(vy1<=vy0) return;
+  var hov=hv(x,vy0,x+w,vy1);
+  var im=hov?null:artCardImg(a,w);                   // the one hovered card is painted live
+  // angle/alpha omitted on purpose: passing them takes GdiGraphics' transform+colour-matrix path,
+  // which is far slower than the plain blit these 1:1 draws need
+  if(im) gr.DrawImage(im,x,vy0,w,vy1-vy0,0,vy0-y,w,vy1-vy0);
+  else paintArtistCard(gr,x,y,w,a,hov);
+  HB_CARD.push({x0:x,y0:vy0,x1:x+w,y1:vy1,kind:'artist',id:a.name});
 }
 function drawHome(gr,r){
   HB_CARD=[];
@@ -1400,37 +1564,32 @@ function drawHome(gr,r){
   homeScroll=clampPx(homeScroll,maxPx); homeScrollT=clampPx(homeScrollT,maxPx);
 
   // ---- 1) artist grid (continuous; the top partial row overflows up, cleared below) ----
-  for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
-    var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
-    if(ay>=cropY) break;
-    if(ay+cardH<=gy) continue;
-    drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
-  }
+  pt('grid',function(){
+    for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
+      var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
+      if(ay>=cropY) break;
+      if(ay+cardH<=gy) continue;
+      drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
+    }
+  });
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
 
   // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
-  gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);
+  pt('fill2',function(){ gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base); });
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,shelfTitleY,w,28);
-  // continuous pixel scroll (same model as the artist grid): start one card left of the
-  // viewport so a partially-scrolled card still draws, then mask what bleeds into the gutter
+  // continuous pixel scroll (same model as the artist grid): start one card left of the viewport
+  // so a partially-scrolled card still draws -- drawPlaylistCard clips it to [x0,rightEdge)
   var stride=scardW+gap, shelfW=Math.max(0,pls.length*stride-gap);
   HOME_PLMAX=Math.max(0,shelfW-w); HOME_STRIDE=stride;
   plScroll=clampPx(plScroll,HOME_PLMAX); plScrollT=clampPx(plScrollT,HOME_PLMAX);
-  for(i=Math.floor(plScroll/stride);i<pls.length;i++){
-    // snap to whole pixels: the eased offset is fractional, and an antialiased card at a
-    // sub-pixel x leaves a translucent fringe outside the rect the masks below cover
-    var cx=Math.round(x0+i*stride-plScroll); if(cx>=rightEdge) break;
-    drawPlaylistCard(gr,cx,shelfY,scardW,pls[i],x0,rightEdge);
-  }
-  // The edge cards hang outside the panel by up to one stride. Restore the canvas here; the nav
-  // and queue cards repaint over the rest (both follow drawMain), but their panelBg is a ROUNDED
-  // rect, so the pixels outside each corner arc are never repainted -- these fills must cover the
-  // card's full reach on their own, not just up to the panel edge. Generous margins on purpose.
-  var mY=shelfY-SHELF_MASK, mH=scardH+SHELF_MASK*2;
-  gr.FillSolidRect(0,mY,r.x,mH,SHELF_DEBUG?DBG_L:COL.black);          // window edge -> main (over nav)
-  // +2 overlap: end past x0 rather than exactly on it, so nothing can survive on the seam
-  gr.FillSolidRect(r.x,mY,x0-r.x+2,mH,SHELF_DEBUG?DBG_P:COL.base);    // main's left padding
-  gr.FillSolidRect(rightEdge,mY,stride+M.gap+SHELF_MASK,mH,SHELF_DEBUG?DBG_R:COL.black); // right spill
+  pt('shelf',function(){
+    for(i=Math.floor(plScroll/stride);i<pls.length;i++){
+      // snap to whole pixels: the eased offset is fractional, and an antialiased card at a
+      // sub-pixel x leaves a translucent fringe at the clip seam
+      var cx=Math.round(x0+i*stride-plScroll); if(cx>=rightEdge) break;
+      drawPlaylistCard(gr,cx,shelfY,scardW,pls[i],x0,rightEdge);
+    }
+  });
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,w,shelfW,hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
@@ -2135,8 +2294,14 @@ function on_mouse_move(x,y){
   if(drag==='scroll'){ setScroll(y); return; }
   if(drag==='scrollh'){ setScrollH(x); return; }
   if(drag==='scrolln'){ setScrollN(y); return; }
-  var sig=hoverSig(x,y), sk=scrollSection(x,y);
-  if(sig!==hoverKey || sk!==scrollKey){ hoverKey=sig; scrollKey=sk; repaintAll(); }   // sk change reveals/hides the section scrollbar
+  var sig=hoverSig(x,y), sk=scrollSection(x,y), z=hoverZone(x,y);
+  if(sig!==hoverKey || sk!==scrollKey){   // sk change reveals/hides the section scrollbar
+    hoverKey=sig; scrollKey=sk;
+    // an overlay owns the whole screen and paintFrame forces a full paint while one is open
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    else { repaintZone(hoverZoneKey); if(z!==hoverZoneKey) repaintZone(z); }   // clear the old highlight, then draw the new
+  }
+  hoverZoneKey=z;
 }
 // which scrollable section the cursor is over (so entering/leaving reveals the hover scrollbar even over gaps)
 function scrollSection(x,y){
@@ -2149,7 +2314,15 @@ function scrollSection(x,y){
   }
   return '';
 }
-function on_mouse_leave(){ mx=-1; my=-1; if(hoverKey!==''||scrollKey!==''){ hoverKey=''; scrollKey=''; repaintAll(); } }
+function on_mouse_leave(){
+  mx=-1; my=-1;
+  if(hoverKey!==''||scrollKey!==''){
+    hoverKey=''; scrollKey='';
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    else repaintZone(hoverZoneKey);
+  }
+  hoverZoneKey='';
+}
 function on_char(code){
   if(renameEdit){
     if(code===8) renameEdit.text=renameEdit.text.slice(0,-1);
@@ -2230,7 +2403,7 @@ function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
 }
-function libChanged(){ invalidateLibrary(); repaintAll(); }
+function libChanged(){ invalidateLibrary(); artCardCache={}; artCardN=0; repaintAll(); }
 function on_library_items_added(){ libChanged(); }
 function on_library_items_removed(){ libChanged(); }
 function on_library_items_changed(){ libChanged(); }
