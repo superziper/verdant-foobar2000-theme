@@ -1236,6 +1236,11 @@ function drawNav(gr){
   if(son||shov) gr.FillRoundRect(sx2,iy,bw,bh,10,10,son?COL.rowActive:COL.rowHover);
   drawIcon(gr,'search',son?COL.text:COL.text2,sx2,iy,bw,bh,26);
   HB_SEARCH={x0:sx2,y0:iy,x1:sx2+bw,y1:iy+bh};
+  // The canvas gap between the two cards is inside the region repaintNavAll invalidates but is
+  // painted by neither of them -- it used to survive only because a full paint cleared the whole
+  // window first, so drawNav has to own it now.
+  var gapY=R.navTop.y+R.navTop.h;
+  gr.FillSolidRect(R.navTop.x,gapY,R.navTop.w,R.navLib.y-gapY,COL.black);
   // library card
   panelBg(gr,R.navLib,COL.base);
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
