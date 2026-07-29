@@ -146,7 +146,13 @@ function playingLoc(){ return plman.GetPlayingItemLocation?plman.GetPlayingItemL
 var plNameCache={}, plCountCache={};
 function plName(pi){ if(!plNameCache.hasOwnProperty(pi)) plNameCache[pi]=plman.GetPlaylistName(pi); return plNameCache[pi]; }
 function plCount(pi){ if(!plCountCache.hasOwnProperty(pi)) plCountCache[pi]=plman.PlaylistItemCount(pi); return plCountCache[pi]; }
-function visiblePlaylists(){ var a=[]; for(var i=0;i<plman.PlaylistCount;i++) if(!isHiddenPl(plName(i))) a.push(i); return a; }
+// memoised per paint: drawNav and drawHome both call this, so it ran twice on every frame
+var visPlCache=null;
+function visiblePlaylists(){
+  if(visPlCache) return visPlCache;
+  var a=[]; for(var i=0;i<plman.PlaylistCount;i++) if(!isHiddenPl(plName(i))) a.push(i);
+  visPlCache=a; return a;
+}
 function vol2pos(v){ return Math.pow(2, v/10); }                                   // dB(-100..0) -> 0..1
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
@@ -165,18 +171,85 @@ function cycleRepeat(){ pbRepeat=(pbRepeat+1)%3; applyPlaybackOrder(); }
 /* ---- album art: async cache keyed by album. A miss draws the placeholder and requests the
    art off the paint thread; arrival caches it and repaints (coalesced). warmArt() pre-requests. */
 var artCache={}, albKeyCache={}, thumbCache={}, artPending={}, artRepaintPending=false;
+/* The library handle list was fetched separately by getArtistList, getSongsIdx, getSearchIdx,
+   loadArtist, libCovers and libCount, and the same title-formatting fields were evaluated across
+   the whole library by two or three of them independently. Both are now fetched once and shared;
+   invalidateLibrary() clears them alongside everything else derived from the library. */
+var libItems_=null, libTFCache={};
+function libItems(){
+  if(libItems_===null){ try{ libItems_=fb.GetLibraryItems(); }catch(e){ libItems_=null; } }
+  return libItems_;
+}
+function libTF(field){
+  if(libTFCache.hasOwnProperty(field)) return libTFCache[field];
+  var lib=libItems(), out=[];
+  if(lib && lib.Count){ try{ out=TF[field].EvalWithMetadbs(lib); }catch(e){ out=[]; } }
+  libTFCache[field]=out; return out;
+}
 function albKey(h){ if(!h) return ''; var p=h.Path; if(albKeyCache.hasOwnProperty(p)) return albKeyCache[p]; var k=TF.albkey.EvalWithMetadb(h); albKeyCache[p]=k; return k; }
-function artWarmRepaint(){ if(artRepaintPending) return; artRepaintPending=true; window.SetTimeout(function(){ artRepaintPending=false; repaintAll(); },60); }
-function requestArt(h,key){
+/* Art arrival used to trigger a full repaintAll every 60ms. With cold caches a full paint costs
+   30-90ms, so one queued every 60ms leaves the single script thread with nothing spare -- the app
+   drew its content and then sat unresponsive until the art finished. Two changes: repaint only
+   the panels art can affect (never the title bar, and skipping the full-window canvas clear), and
+   back the interval right off while a bulk warm is still draining. */
+function artWarmRepaint(){
+  if(artRepaintPending) return;
+  artRepaintPending=true;
+  var busy=(artQueue.length+artInFlight)>16;
+  window.SetTimeout(function(){
+    artRepaintPending=false;
+    if(!R.main||!R.navTop||!R.queue){ repaintAll(); return; }   // art can resolve before layout() has run
+    repaintMain(); repaintNavAll(); repaintQueue();             // repaintMain also covers the bar
+  },busy?260:60);
+}
+/* Requests are queued rather than all fired at once. Each resolution resizes a full-size cover on
+   the script thread, so hundreds landing together serialise into one long stall. On-demand
+   requests (a card being drawn now) jump the queue ahead of bulk warm-up work, so what's on
+   screen fills in first instead of behind several hundred off-screen covers. */
+var artQueue=[], artInFlight=0, ART_MAX_INFLIGHT=8;
+function requestArt(h,key,lowPri){
   if(!h || artCache.hasOwnProperty(key) || artPending[key]) return;
   artPending[key]=true;
+  if(lowPri) artQueue.push([h,key]); else artQueue.unshift([h,key]);
+  pumpArt();
+}
+function pumpArt(){
+  while(artInFlight<ART_MAX_INFLIGHT && artQueue.length){
+    var it=artQueue.shift();
+    artInFlight++;
+    startArt(it[0],it[1]);
+  }
+}
+/* Bounded image caches. Left unbounded these hold one <=500px image per album, plus a resized
+   copy per size and per mask -- fine at a couple of thousand tracks, gigabytes on a large
+   library. Eviction is oldest-first and only ever costs a reload, never a wrong pixel. Each key
+   is inserted exactly once (callers check hasOwnProperty first), so the order list can't grow
+   duplicates. */
+function capPut(store,order,cap,key,val){
+  store[key]=val; order.push(key);
+  if(order.length>cap){
+    var drop=order.splice(0,Math.floor(cap/4));
+    for(var i=0;i<drop.length;i++) delete store[drop[i]];
+  }
+}
+var artOrder=[], thumbOrder=[], cArtOrder=[];
+// artCache holds decoded bitmaps (a 500px cover is ~1MB ARGB), so the cap is a real memory
+// ceiling: ~110-300MB here depending on cover sizes. Thumbs and masked art are far smaller per
+// entry (44px row thumb ~8KB, 155px card cover ~96KB), so their caps can be looser.
+var ART_CAP=300, THUMB_CAP=400, CART_CAP=400;
+function artDone(key,img){
+  capPut(artCache,artOrder,ART_CAP,key,img||null);
+  delete artPending[key];
+  artInFlight--; pumpArt();
+}
+function startArt(h,key){
   try{
     utils.GetAlbumArtAsyncV2(0,h,0,false,false,false).then(function(res){
       var img=res?res.image:null;
       if(img && img.Width>500){ try{ img=img.Resize(500,Math.round(img.Height*500/img.Width),2); }catch(e){} }
-      artCache[key]=img||null; delete artPending[key]; artWarmRepaint();
-    }, function(){ artCache[key]=null; delete artPending[key]; });
-  }catch(e){ delete artPending[key]; }
+      artDone(key,img); artWarmRepaint();
+    }, function(){ artDone(key,null); });
+  }catch(e){ artDone(key,null); }
 }
 function getArtK(h,key){                        // cached image, or null (not-loaded -> request async)
   if(!h) return null;
@@ -187,15 +260,38 @@ function getArtK(h,key){                        // cached image, or null (not-lo
 function artLoaded(key){ return artCache.hasOwnProperty(key); }   // vs. still-loading (don't cache derivatives yet)
 function getArt(h){ return h?getArtK(h,albKey(h)):null; }
 var warmed={};   // guards one-time warm passes per view; reset when items change
-function warmArt(handles){ if(!handles) return; var n=(handles.length!==undefined)?handles.length:handles.Count; for(var i=0;i<n;i++){ var h=handles[i]; if(h) requestArt(h,albKey(h)); } }
+// bulk warm-up is low priority: it must not push what's currently on screen to the back of the queue
+function warmArt(handles){ if(!handles) return; var n=(handles.length!==undefined)?handles.length:handles.Count; for(var i=0;i<n;i++){ var h=handles[i]; if(h) requestArt(h,albKey(h),true); } }
 function warmOnce(tag,handles){ if(warmed[tag]) return; warmed[tag]=1; warmArt(handles); }
+/* The home warm pass used to touch every artist and every playlist in a single go, inside a paint
+   -- and plCovers() materialises a playlist's whole item list, so it scaled with the library, not
+   the screen. It now runs in slices on timer ticks. Requests are queued low-priority, so nothing
+   here can delay art for what is actually on screen. */
+var warmJob=null, WARM_SLICE=25;
+function startWarmHome(arts,pls){ warmJob={arts:arts,pls:pls,ai:0,pi:0}; warmStep(); }
+function warmStep(){
+  if(!warmJob) return;
+  var j=warmJob, n=0, h;
+  while(n<WARM_SLICE && j.ai<j.arts.length){
+    h=artistCover(j.arts[j.ai].name,j.arts[j.ai].handle);
+    if(h) requestArt(h,albKey(h),true);
+    j.ai++; n++;
+  }
+  while(n<WARM_SLICE && j.pi<j.pls.length){
+    h=plCovers(j.pls[j.pi]).single;
+    if(h) requestArt(h,albKey(h),true);
+    j.pi++; n++;
+  }
+  if(j.ai>=j.arts.length && j.pi>=j.pls.length){ warmJob=null; return; }
+  window.SetTimeout(warmStep,30);
+}
 function getThumb(h,key,size){
   var img=getArtK(h,key);
   if(!artLoaded(key)) return null;             // still loading -> placeholder, don't cache
   var tk=key+'|'+size;
   if(thumbCache.hasOwnProperty(tk)) return thumbCache[tk];
   var r=null; if(img){ try{ r=img.Resize(size,size,2); }catch(e){ r=null; } }
-  thumbCache[tk]=r; return r;
+  capPut(thumbCache,thumbOrder,THUMB_CAP,tk,r); return r;
 }
 function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:null; }
 
@@ -203,10 +299,10 @@ function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:nul
 var artistList=null, artistTracksMap=null, artistCoverCache={};
 function getArtistList(){
   if(artistList) return artistList;
-  var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
+  var lib=libItems();
   var out=[]; artistTracksMap={};
   if(lib && lib.Count){
-    var names=TF.artistName.EvalWithMetadbs(lib), seen={};
+    var names=libTF('artistName'), seen={};
     for(var i=0;i<names.length;i++){
       var nm=names[i]; if(!nm) continue;
       if(!artistTracksMap[nm]) artistTracksMap[nm]=[];
@@ -226,10 +322,10 @@ function artistCover(name,fallback){
 }
 function loadArtist(name){
   viewArtist=name; artScroll=0; artistAlbums=[];
-  var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
+  var lib=libItems();
   if(!lib || !lib.Count) return;
-  var arts=TF.artistName.EvalWithMetadbs(lib), albs=TF.album.EvalWithMetadbs(lib),
-      titles=TF.title.EvalWithMetadbs(lib), lens=TF.len.EvalWithMetadbs(lib), yrs=TF.year.EvalWithMetadbs(lib);
+  var arts=libTF('artistName'), albs=libTF('album'),
+      titles=libTF('title'), lens=libTF('len'), yrs=libTF('year');
   var map={}, order=[];
   for(var i=0;i<arts.length;i++){
     if(arts[i]!==name) continue;
@@ -261,28 +357,35 @@ var SG_H2=SG_GAP2+SG_ART2+SG_PADB2;                  // 68  nested header
 var SG_TRH=44, SHEAD=312, SG_CROP=96;
 function getSongsIdx(){
   if(songsIdx) return songsIdx;
-  var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
+  var lib=libItems();
   var out=[]; songsTotalSec=0;
   if(lib && lib.Count){
-    var ti=TF.title.EvalWithMetadbs(lib), ar=TF.artist.EvalWithMetadbs(lib), aa=TF.artistName.EvalWithMetadbs(lib),
-        al=TF.album.EvalWithMetadbs(lib), ln=TF.len.EvalWithMetadbs(lib), ls=TF.lensec.EvalWithMetadbs(lib),
-        ak=TF.albkey.EvalWithMetadbs(lib), tn=TF.trackno.EvalWithMetadbs(lib), yr=TF.year.EvalWithMetadbs(lib);
+    var ti=libTF('title'), ar=libTF('artist'), aa=libTF('artistName'),
+        al=libTF('album'), ln=libTF('len'), ls=libTF('lensec'),
+        ak=libTF('albkey'), tn=libTF('trackno'), yr=libTF('year');
     for(var i=0;i<ti.length;i++){
       songsTotalSec+=parseInt(ls[i],10)||0;
-      out.push({h:lib[i], title:ti[i]||'', artist:ar[i]||'', aartist:aa[i]||'Unknown Artist',
-                album:al[i]||'Unknown Album', len:ln[i], artkey:ak[i], year:yr[i]||'', tn:parseInt(tn[i],10)||0});
+      var eT=ti[i]||'', eR=ar[i]||'', eA=aa[i]||'Unknown Artist', eL=al[i]||'Unknown Album';
+      // sort keys are lowercased once here instead of on every comparison inside cmpStr; a sort
+      // does n*log(n) comparisons, so doing it per-comparison scales as badly as the sort itself
+      out.push({h:lib[i], title:eT, artist:eR, aartist:eA,
+                album:eL, len:ln[i], artkey:ak[i], year:yr[i]||'', tn:parseInt(tn[i],10)||0,
+                kT:eT.toLowerCase(), kR:eR.toLowerCase(), kA:eA.toLowerCase(), kL:eL.toLowerCase()});
     }
   }
   songsIdx=out; return out;
 }
 function cmpStr(a,b){ a=String(a).toLowerCase(); b=String(b).toLowerCase(); return a<b?-1:(a>b?1:0); }
+function cmpK(a,b){ return a<b?-1:(a>b?1:0); }   // operands already lowercased once at index time
 function cmpTrk(a,b){ return (a.tn-b.tn)||cmpStr(a.title,b.title); }   // within an album: disc order, then title
 function buildSongsRows(){
   var idx=getSongsIdx().slice(0), g=songsGroup, rows=[], tracks=[], i;
-  if(g==='artist')     idx.sort(function(a,b){ return cmpStr(a.aartist,b.aartist)||cmpStr(a.album,b.album)||cmpTrk(a,b); });
-  else if(g==='album') idx.sort(function(a,b){ return cmpStr(a.album,b.album)||cmpStr(a.aartist,b.aartist)||cmpTrk(a,b); });
-  else if(g==='both')  idx.sort(function(a,b){ return cmpStr(a.aartist,b.aartist)||cmpStr(a.album,b.album)||cmpTrk(a,b); });
-  else                 idx.sort(function(a,b){ return cmpStr(a.title,b.title)||cmpStr(a.artist,b.artist); });
+  // compares the lowercase keys precomputed in getSongsIdx -- identical ordering to cmpStr, but
+  // without re-lowercasing both operands on every one of the n*log(n) comparisons
+  if(g==='artist')     idx.sort(function(a,b){ return cmpK(a.kA,b.kA)||cmpK(a.kL,b.kL)||cmpTrk(a,b); });
+  else if(g==='album') idx.sort(function(a,b){ return cmpK(a.kL,b.kL)||cmpK(a.kA,b.kA)||cmpTrk(a,b); });
+  else if(g==='both')  idx.sort(function(a,b){ return cmpK(a.kA,b.kA)||cmpK(a.kL,b.kL)||cmpTrk(a,b); });
+  else                 idx.sort(function(a,b){ return cmpK(a.kT,b.kT)||cmpK(a.kR,b.kR); });
   var curA=null, curAl=null, ref1=null, ref2=null, n=0, trH=(g==='none')?M.rowH:SG_TRH;
   var h1=(g==='both')?SG_H1B:SG_H1;
   for(i=0;i<idx.length;i++){
@@ -462,7 +565,7 @@ function maskedArt(h,seed,size,mask,tag){
   if(h && !artLoaded(albKey(h))) return null;   // still loading -> placeholder, don't cache
   var res=null;
   if(art){ try{ var img=art.Resize(size,size); img.ApplyMask(mask); res=img; }catch(e){ res=null; } }
-  cArtCache[k]=res; return res;
+  capPut(cArtCache,cArtOrder,CART_CAP,k,res); return res;
 }
 function drawCircle(gr,x,y,size,h,seed){
   var ci=maskedArt(h,seed,size,circleMask(size),'c');
@@ -558,10 +661,10 @@ function plCardImg(pi,w){
 }
 /* "All Songs" cover: 4 distinct albums sampled ACROSS the library, not just the first few */
 var libCovCache=null, libCount_=-1;
-function libCount(){ if(libCount_<0){ var l=null; try{ l=fb.GetLibraryItems(); }catch(e){} libCount_=l?l.Count:0; } return libCount_; }
+function libCount(){ if(libCount_<0){ var l=libItems(); libCount_=l?l.Count:0; } return libCount_; }
 function libCovers(){
   if(libCovCache) return libCovCache;
-  var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
+  var lib=libItems();
   var res={list:[], single:null};
   if(lib && lib.Count){
     var seen={}, step=Math.max(1,Math.floor(lib.Count/400));
@@ -942,7 +1045,7 @@ function getMeta(pi){
     for(var i=0;i<secs.length;i++) tot+=parseInt(secs[i],10)||0;
     plMetaMap[pi]={ title:TF.title.EvalWithMetadbs(list), artist:TF.artist.EvalWithMetadbs(list),
                     album:TF.album.EvalWithMetadbs(list), len:TF.len.EvalWithMetadbs(list), artkey:TF.albkey.EvalWithMetadbs(list),
-                    totalSec:tot };
+                    totalSec:tot, keys:null };
   }
   return plMetaMap[pi];
 }
@@ -953,19 +1056,30 @@ function fmtDur(s){
   if(m>0) return m+' min';
   return s+' sec';
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; visPlCache=null; warmJob=null; }
 
 /* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
    row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */
 var plSort='artist', plSortDir='asc', plSortMenuOpen=false, PL_SORT_HB=[], HB_PLSORT=null, HB_PLSORTDIR=null;
 var PL_SORTS=[['Title','title'],['Artist','artist'],['Album','album']];
 var plOrderMap={};
+// Lowercase sort keys built once per playlist and reused across re-sorts, for the same reason as
+// the All Songs index: cmpStr would otherwise lowercase both operands on every comparison.
+function plKeys(pi){
+  var meta=getMeta(pi);
+  if(!meta.keys){
+    var n=meta.title.length, t=[], a=[], l=[], i;
+    for(i=0;i<n;i++){ t.push(String(meta.title[i]).toLowerCase()); a.push(String(meta.artist[i]).toLowerCase()); l.push(String(meta.album[i]).toLowerCase()); }
+    meta.keys={t:t,a:a,l:l};
+  }
+  return meta.keys;
+}
 function buildPlOrder(pi){
-  var meta=getMeta(pi), n=meta.title.length, order=[], i;
+  var meta=getMeta(pi), k=plKeys(pi), n=meta.title.length, order=[], i;
   for(i=0;i<n;i++) order.push(i);
-  if(plSort==='title') order.sort(function(a,b){ return cmpStr(meta.title[a],meta.title[b])||cmpStr(meta.artist[a],meta.artist[b]); });
-  else if(plSort==='album') order.sort(function(a,b){ return cmpStr(meta.album[a],meta.album[b])||cmpStr(meta.artist[a],meta.artist[b])||cmpStr(meta.title[a],meta.title[b]); });
-  else order.sort(function(a,b){ return cmpStr(meta.artist[a],meta.artist[b])||cmpStr(meta.album[a],meta.album[b])||cmpStr(meta.title[a],meta.title[b]); });
+  if(plSort==='title') order.sort(function(a,b){ return cmpK(k.t[a],k.t[b])||cmpK(k.a[a],k.a[b]); });
+  else if(plSort==='album') order.sort(function(a,b){ return cmpK(k.l[a],k.l[b])||cmpK(k.a[a],k.a[b])||cmpK(k.t[a],k.t[b]); });
+  else order.sort(function(a,b){ return cmpK(k.a[a],k.a[b])||cmpK(k.l[a],k.l[b])||cmpK(k.t[a],k.t[b]); });
   if(plSortDir==='desc') order.reverse();
   return order;
 }
@@ -1155,6 +1269,7 @@ function on_paint(gr){
   }
 }
 function paintFrame(gr){
+  visPlCache=null;   // one playlist scan per frame, shared by drawNav and drawHome
   gr.SetSmoothingMode(2);
   gr.SetInterpolationMode(5);   // NearestNeighbor: every DrawImage here is 1:1, so filtering is pure cost
   if(fsMode){ clearDirty(); HB_DOTS=[]; drawFullscreen(gr); return; }
@@ -1563,7 +1678,7 @@ function drawHome(gr,r){
   var cropY=r.y+r.h, rowStep=cardH+8, viewH=cropY-gy;
   var arts=getArtistList();
   // warm artist avatars + shelf covers
-  if(!warmed['home']){ warmed['home']=1; var wa=[],wi; for(wi=0;wi<arts.length;wi++) wa.push(artistCover(arts[wi].name,arts[wi].handle)); for(wi=0;wi<pls.length;wi++) wa.push(plCovers(pls[wi]).single); warmArt(wa); }
+  if(!warmed['home']){ warmed['home']=1; startWarmHome(arts,pls); }
   var totalRows=Math.max(1,Math.ceil(arts.length/cols)), contentH=totalRows*rowStep, maxPx=Math.max(0,contentH-viewH);
   HOME_MAXROW=maxPx;
   homeScroll=clampPx(homeScroll,maxPx); homeScrollT=clampPx(homeScrollT,maxPx);
@@ -2139,10 +2254,10 @@ function playArtistTrack(block,idx){
 }
 function getSearchIdx(){
   if(searchIdx) return searchIdx;
-  var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
+  var lib=libItems();
   var out=[];
   if(lib && lib.Count){
-    var t=TF.title.EvalWithMetadbs(lib), a=TF.artist.EvalWithMetadbs(lib), al=TF.album.EvalWithMetadbs(lib), l=TF.len.EvalWithMetadbs(lib);
+    var t=libTF('title'), a=libTF('artist'), al=libTF('album'), l=libTF('len');
     for(var i=0;i<t.length;i++) out.push({h:lib[i],title:t[i],artist:a[i],album:al[i],len:l[i],key:(t[i]+' '+a[i]+' '+al[i]).toLowerCase()});
   }
   searchIdx=out; return out;
@@ -2407,6 +2522,8 @@ function on_script_unload(){
 function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
+  libItems_=null; libTFCache={};   // everything above is derived from these
+  warmJob=null;                    // a warm in flight refers to the old artist/playlist lists
 }
 function libChanged(){ invalidateLibrary(); artCardCache={}; artCardN=0; repaintAll(); }
 function on_library_items_added(){ libChanged(); }
