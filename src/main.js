@@ -548,11 +548,12 @@ var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, 
 // eased scrolling: animate each rendered position toward its target, repainting only the moving region
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll;
+  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll, d6=plScrollT-plScroll;
   if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; mm=true; } else firstRow=firstRowT;
   if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; mm=true; } else homeScroll=homeScrollT;
   if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; mm=true; } else songsScroll=songsScrollT;
   if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; mm=true; } else searchScroll=searchScrollT;
+  if(Math.abs(d6)>=0.5){ plScroll+=d6*0.25; mm=true; } else plScroll=plScrollT;
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; nm=true; } else navScroll=navScrollT;
   if(mm) repaintMain();
   if(nm) repaintNav();
@@ -840,8 +841,16 @@ function playQueueItem(qi){
 function npIsShuffleOf(name){ return pbShuffle && NP && name===shufSrcName; }
 var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0, SEARCH_MAXPX=0;
-// Home "Your Playlists" horizontal shelf: scroll offset (card index), max, wheel hit-band, h-scrollbar.
-var plScroll=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
+// Home "Your Playlists" horizontal shelf: pixel scroll offset + eased target, max, wheel hit-band, h-scrollbar.
+var plScroll=0, plScrollT=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
+var SHELF_MASK=6;   // slack around the shelf masks: soaks up antialiased card edges
+// The shelf glides freely but always *targets* a card boundary, so the leftmost card keeps its
+// rounded edge instead of being cut mid-body (COL.elev against COL.base reads as a seam).
+// HOME_STRIDE is published by drawHome, which is the only place the card pitch is known.
+var HOME_STRIDE=0;
+function snapShelf(px){ var st=HOME_STRIDE||1; return clampPx(Math.round(px/st)*st,HOME_PLMAX); }
+var SHELF_DEBUG=false;   // set true to tint the shelf masks and see their real extent
+var DBG_L=RGB(255,0,255), DBG_P=RGB(0,255,0), DBG_R=RGB(0,255,255);
 function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
   if(contentW<=viewW || w<=6 || !show){ SBH=null; return; }   // hidden until the section is hovered
   var sh=5;
@@ -850,11 +859,11 @@ function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
   var tx=sx+(maxX>0?Math.round((w-thumbW)*scrollX/maxX):0);
   var on=(drag==='scrollh')||hv(sx,top-6,sx+w,top+sh+6);
   gr.FillSolidRect(tx,top,thumbW,sh,RGBA(255,255,255,on?175:95));
-  SBH={x0:sx,y0:top-6,x1:sx+w,y1:top+sh+6,left:sx,w:w,thumbW:thumbW,maxIdx:HOME_PLMAX};
+  SBH={x0:sx,y0:top-6,x1:sx+w,y1:top+sh+6,left:sx,w:w,thumbW:thumbW,maxPx:HOME_PLMAX};
 }
-function setScrollH(x){   // shelf stays card-stepped
+function setScrollH(x){   // free pixel scrolling; target set with it so the easing doesn't fight the drag
   if(!SBH) return;
-  plScroll=Math.round(sbFrac(x,SBH.left,SBH.w,SBH.thumbW)*SBH.maxIdx); repaintAll();
+  plScroll=plScrollT=Math.round(sbFrac(x,SBH.left,SBH.w,SBH.thumbW)*SBH.maxPx); repaintAll();
 }
 var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
@@ -1043,8 +1052,10 @@ function on_paint(gr){
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
     drawTitleBar(gr);
-    drawNav(gr);
+    // main before nav: the home shelf's leftmost card is drawn partly outside the panel
+    // (continuous scroll), so nav must repaint over that bleed -- same reason queue follows main
     drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w);
+    drawNav(gr);
     drawQueue(gr);
     drawBar(gr);
     drawOverlays(gr);
@@ -1345,15 +1356,18 @@ function drawPill(gr,x,y,w,label,primary){
   return hb;
 }
 
-function drawPlaylistCard(gr,x,y,w,i){
-  var cardHov=hv(x,y,x+w,y+w+56);
+function drawPlaylistCard(gr,x,y,w,i,clipL,clipR){
+  // hover + click target clip to the shelf viewport: a card half-scrolled past the edge
+  // must not stay hoverable in the gutter it bleeds into
+  var hx0=(clipL!==undefined&&x<clipL)?clipL:x, hx1=(clipR!==undefined&&x+w>clipR)?clipR:x+w;
+  var cardHov=hx1>hx0 && hv(hx0,y,hx1,y+w+56);
   gr.FillRoundRect(x,y,w,w+56,8,8,cardHov?RGB(40,40,40):COL.elev);
   var cs=w-24;
   drawPlCover(gr,x+12,y+12,cs,6,i,plman.GetPlaylistName(i));
   tL(gr,plman.GetPlaylistName(i),FONT.card,COL.text,x+12,y+cs+18,w-24-(cardHov?26:0),20);
   tL(gr,plman.PlaylistItemCount(i)+' songs',FONT.plSub,COL.text2,x+12,y+cs+40,w-24,16);
   if(cardHov) drawDots(gr,x+w-32,y+cs+16,i);
-  HB_CARD.push({x0:x,y0:y,x1:x+w,y1:y+w+56,kind:'pl',id:i});
+  if(hx1>hx0) HB_CARD.push({x0:hx0,y0:y,x1:hx1,y1:y+w+56,kind:'pl',id:i});
 }
 function drawArtistCard(gr,x,y,w,a,clipTop,clipBot){
   gr.FillRoundRect(x,y,w,w+56,8,8,hv(x,y,x+w,y+w+56)?RGB(40,40,40):COL.elev);
@@ -1397,16 +1411,29 @@ function drawHome(gr,r){
   // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
   gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,shelfTitleY,w,28);
-  HOME_PLMAX=Math.max(0,pls.length-cols);
-  plScroll=clampPx(plScroll,HOME_PLMAX);
-  for(i=plScroll;i<pls.length;i++){
-    var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;
-    drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
+  // continuous pixel scroll (same model as the artist grid): start one card left of the
+  // viewport so a partially-scrolled card still draws, then mask what bleeds into the gutter
+  var stride=scardW+gap, shelfW=Math.max(0,pls.length*stride-gap);
+  HOME_PLMAX=Math.max(0,shelfW-w); HOME_STRIDE=stride;
+  plScroll=clampPx(plScroll,HOME_PLMAX); plScrollT=clampPx(plScrollT,HOME_PLMAX);
+  for(i=Math.floor(plScroll/stride);i<pls.length;i++){
+    // snap to whole pixels: the eased offset is fractional, and an antialiased card at a
+    // sub-pixel x leaves a translucent fringe outside the rect the masks below cover
+    var cx=Math.round(x0+i*stride-plScroll); if(cx>=rightEdge) break;
+    drawPlaylistCard(gr,cx,shelfY,scardW,pls[i],x0,rightEdge);
   }
-  gr.FillSolidRect(rightEdge,shelfY,M.gap+2,scardH+2,COL.black);   // gap between shelf and queue
+  // The edge cards hang outside the panel by up to one stride. Restore the canvas here; the nav
+  // and queue cards repaint over the rest (both follow drawMain), but their panelBg is a ROUNDED
+  // rect, so the pixels outside each corner arc are never repainted -- these fills must cover the
+  // card's full reach on their own, not just up to the panel edge. Generous margins on purpose.
+  var mY=shelfY-SHELF_MASK, mH=scardH+SHELF_MASK*2;
+  gr.FillSolidRect(0,mY,r.x,mH,SHELF_DEBUG?DBG_L:COL.black);          // window edge -> main (over nav)
+  // +2 overlap: end past x0 rather than exactly on it, so nothing can survive on the seam
+  gr.FillSolidRect(r.x,mY,x0-r.x+2,mH,SHELF_DEBUG?DBG_P:COL.base);    // main's left padding
+  gr.FillSolidRect(rightEdge,mY,stride+M.gap+SHELF_MASK,mH,SHELF_DEBUG?DBG_R:COL.black); // right spill
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
-  drawScrollbarH(gr,x0,sbY,w,plScroll*(scardW+gap),HOME_PLMAX*(scardW+gap),w,pls.length*(scardW+gap),hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
+  drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,w,shelfW,hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
   tL(gr,'Artists in your library',FONT.sect2,COL.text,x0,artTitleY,w,28);
 
   // ---- 3) artist scrollbar (continuous, pixel) ----
@@ -2013,7 +2040,11 @@ function on_mouse_lbtn_up(x,y){
   if((t=hit(HB_DOTS,x,y))){ openPlaylistMenu(t.pl,t.mx,t.my); return; }
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; repaintAll(); return; }
   if(drag==='vol'){ drag=null; return; }
-  if(drag==='scroll'||drag==='scrollh'||drag==='scrolln'){ drag=null; repaintAll(); return; }
+  if(drag==='scroll'||drag==='scrollh'||drag==='scrolln'){
+    var wasH=(drag==='scrollh'); drag=null;
+    if(wasH){ plScrollT=snapShelf(plScroll); startScrollAnim(); }   // release the thumb -> settle on a boundary
+    repaintAll(); return;
+  }
   // an open dropdown is modal-ish: any click either picks an item or closes it
   if(sgMenuOpen){
     if((t=hit(SG_HB,x,y))){ setSongsGroup(t.v); return; }
@@ -2140,7 +2171,7 @@ function on_mouse_wheel(step){
   }
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){
-    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll=clampPx(plScroll-step,HOME_PLMAX); repaintAll(); }   // shelf: card-stepped
+    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScrollT=snapShelf(plScrollT-step*WHEEL_PX); startScrollAnim(); }   // shelf: eased glide onto a card boundary
     else { homeScrollT=clampPx(homeScrollT-step*Math.round(WHEEL_PX*1.7),HOME_MAXROW); startScrollAnim(); }   // artists: bigger step, tall cards
     return;
   }
