@@ -1,26 +1,11 @@
 'use strict';
 
-/* =============================================================
- * foobar2000 x Spotify  -  Phase 3, milestone A: app shell
- * -------------------------------------------------------------
- * Real data, real library. Three rounded panels on black + a
- * bottom playback bar, mirroring the approved HTML mockup:
- *   - left nav  : Home/Search + your real playlists (click = switch)
- *   - main      : active playlist header + scrollable track list
- *                 (click a row = play it)
- *   - right     : Queue/Lyrics tabs + now playing (wired next)
- *   - bottom    : now playing + seekbar + play/pause
- *
- * Runs in a JSplitter panel (GDI+). Load via the one-line
- * bootstrap.txt so edits = deploy.ps1 + right-click > Reload.
- * ============================================================= */
+/* foobar2000 x Spotify skin. Runs in a JSplitter panel (GDI+); load via bootstrap.txt. */
 
-// NOTE: the key is `features`, not `options` -- an unknown key is silently ignored, and without
-// features.drag_n_drop the panel is never registered as an OLE drop target, so no on_drag_* fires.
+// the key is `features`, not `options` -- without features.drag_n_drop the panel is never
+// registered as an OLE drop target, so no on_drag_* fires
 window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', features:{ drag_n_drop:true, grab_focus:true } });
-var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys (incl. as-typed chars) instead of letting
-                               // foobar swallow them as global shortcuts. Applied only in Search
-                               // view (see applyKeyMode) so shortcuts still work everywhere else.
+var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view (see applyKeyMode)
 
 /* ------------------------- colour helpers ------------------------- */
 function RGB(r,g,b){ return (0xff000000|(r<<16)|(g<<8)|b); }
@@ -38,42 +23,37 @@ var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:84, rowH:56, radi
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
 /* ------------------------- fonts (create once) -------------------------
-   UISCALE enlarges every font for high-DPI / large screens (2K 21" etc.).
-   Raise it (e.g. 1.4) if still small; lower toward 1.0 for a compact look.
+   UISCALE enlarges every font for high-DPI screens; raise for bigger, lower toward 1.0 for compact.
    Regular (non-bold) text uses 'Segoe UI Semibold' so it doesn't read thin. */
 var UISCALE = 1.25;
 function gf(name,sz,style){ return gdi.Font(name, Math.max(1,Math.round(sz*UISCALE)), style||0); }
 function F(sz,bold){ return gf(bold?'Segoe UI':'Segoe UI Semibold', sz, bold?1:0); }
 var FONT = {
-  nav:F(15,1), lib:F(15,1), pl:F(13,1), plSub:F(11,0),
+  lib:F(15,1), pl:F(13,1), plSub:F(11,0),
   eyebrow:F(11,1), title:F(52,1), meta:F(13,0),
   rowTitle:F(14,0), rowArtist:F(12,0), rowNum:F(13,0), rowCell:F(13,0), head:F(12,1),
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
-  npTitle:F(15,0), npArtist:F(12,0), time:F(12,0), prefs:F(11,0), glyph:F(15,0)
+  npTitle:F(15,0), npArtist:F(12,0), time:F(12,0),
+  icon:gf('Segoe MDL2 Assets',15), iconBtn:gf('Segoe MDL2 Assets',18),
+  navIco:gf('Segoe MDL2 Assets',24), cap:gf('Segoe MDL2 Assets',10),
+  menu:gf('Segoe UI',12), card:gf('Segoe UI',14,1), sect2:gf('Segoe UI',22,1),
+  searchTxt:gf('Segoe UI Semibold',16,0),
+  lyric:gf('Segoe UI',18,1), fsLyric:gf('Segoe UI',30,1),
+  fsSrc:gf('Segoe UI Semibold',13,0),
+  fsSrcName:gf('Segoe UI',13,1)   // bold: the playlist name, vs. the plain-weight fixed caption
 };
-FONT.icon = gf('Segoe MDL2 Assets',15);
-FONT.iconBtn = gf('Segoe MDL2 Assets',18);
-FONT.card = gf('Segoe UI',14,1);
-FONT.sect2 = gf('Segoe UI',22,1);
-FONT.searchTxt = gf('Segoe UI Semibold',16,0);
-FONT.searchIco = gf('Segoe MDL2 Assets',15);
-FONT.lyric = gf('Segoe UI',18,1);
-FONT.fsLyric = gf('Segoe UI',30,1);
-FONT.fsSrc = gf('Segoe UI Semibold',13,0);
-FONT.fsSrcName = gf('Segoe UI',13,1);   // bold: the actual playlist name, vs. the plain-weight fixed caption
-FONT.lyricCur = gf('Segoe UI',23,1);
-var GLYPH = { play:String.fromCharCode(0xE768), pause:String.fromCharCode(0xE769), prev:String.fromCharCode(0xE892), next:String.fromCharCode(0xE893), shuffle:String.fromCharCode(0xE8B1), repeat:String.fromCharCode(0xE8EE) };
-GLYPH.repeat1=String.fromCharCode(0xE8ED); GLYPH.volume=String.fromCharCode(0xE767); GLYPH.settings=String.fromCharCode(0xE713);
-GLYPH.search=String.fromCharCode(0xE721); GLYPH.home=String.fromCharCode(0xE80F); GLYPH.add=String.fromCharCode(0xE710); GLYPH.more=String.fromCharCode(0xE712);
-FONT.navIco = gf('Segoe MDL2 Assets',24);
-var CH_DOT=String.fromCharCode(0xB7), CH_BULL=String.fromCharCode(0x2022);
-GLYPH.clock=String.fromCharCode(0xE823);
-GLYPH.cmin=String.fromCharCode(0xE921); GLYPH.cmax=String.fromCharCode(0xE922); GLYPH.crestore=String.fromCharCode(0xE923); GLYPH.cclose=String.fromCharCode(0xE8BB);
-FONT.cap = gf('Segoe MDL2 Assets',10);
-/* Custom window title bar via UI Wizard (foo_ui_wizard, already installed) - frameless + our own controls */
+function chr(c){ return String.fromCharCode(c); }
+// MDL2 fallbacks for drawIcon when gdi.LoadSVG is unavailable (keys mirror ICONS), plus caption buttons
+var GLYPH = {
+  play:chr(0xE768), pause:chr(0xE769), prev:chr(0xE892), next:chr(0xE893),
+  shuffle:chr(0xE8B1), repeat:chr(0xE8EE), repeat1:chr(0xE8ED), volume:chr(0xE767),
+  search:chr(0xE721), home:chr(0xE80F), add:chr(0xE710), more:chr(0xE712), clock:chr(0xE823),
+  cmin:chr(0xE921), cmax:chr(0xE922), crestore:chr(0xE923), cclose:chr(0xE8BB)
+};
+var CH_DOT=chr(0xB7), CH_BULL=chr(0x2022);
+/* Custom window title bar via UI Wizard (foo_ui_wizard) - frameless + our own controls */
 var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
 var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
-FONT.menu = gf('Segoe UI',12);
 var MENUS=[['File','file'],['Library','library'],['Help','help']];
 var MENU_END=0, capW=-1, capEnd=-1;
 function applyCaption(){ if(!UIWizard) return; if(capW===W && capEnd===MENU_END) return; capW=W; capEnd=MENU_END; try{ UIWizard.SetCaptionAreaSize(MENU_END,0,Math.max(0,W-CAPBW*3-MENU_END),TBH); }catch(e){} }
@@ -83,23 +63,19 @@ function openMenu(root,x,y){ try{ var mm=fb.CreateMainMenuManager(); mm.Init(roo
 var TF = {
   title:fb.TitleFormat('%title%'), artist:fb.TitleFormat('[%artist%]'),
   album:fb.TitleFormat('[%album%]'), len:fb.TitleFormat('%length%'),
-  npTitle:fb.TitleFormat('[%title%]'), npArtist:fb.TitleFormat('[%artist%]')
+  npTitle:fb.TitleFormat('[%title%]'), npArtist:fb.TitleFormat('[%artist%]'),
+  albkey:fb.TitleFormat('%album artist% - %album%'), artistName:fb.TitleFormat('%album artist%'),
+  year:fb.TitleFormat('$year(%date%)'), lensec:fb.TitleFormat('%length_seconds%'),
+  trackno:fb.TitleFormat('%tracknumber%')
 };
-TF.albkey=fb.TitleFormat('%album artist% - %album%');
-TF.artistName=fb.TitleFormat('%album artist%');
-TF.year=fb.TitleFormat('$year(%date%)');
-TF.lensec=fb.TitleFormat('%length_seconds%');
-TF.trackno=fb.TitleFormat('%tracknumber%');
 
 /* ------------------------- DrawText flags ------------------------- */
 var DT_L = 0x4|0x20|0x800|0x8000;        // left + vcenter + singleline + noprefix + end-ellipsis
 var DT_R = 0x2|0x4|0x20|0x800;           // right + vcenter + singleline + noprefix
 var DT_C = 0x1|0x4|0x20|0x800;           // center + vcenter + singleline + noprefix
-/* Every label is DT_SINGLELINE|DT_VCENTER, which CLIPS to the rect. Fonts scale with UISCALE but
-   call sites pass hardcoded box heights, so a box can end up shorter than the font's line height
-   and descenders get sliced off ("songs", "drag a file"). fitV() grows a too-short box symmetrically
-   to the line height: the text stays optically where the caller put it, it just stops being cut.
-   Line height is measured once per font (identity-cached -- the FONT table is small and fixed). */
+/* Labels are singleline+vcenter, which CLIPS to the rect: call sites pass hardcoded box heights
+   while fonts scale with UISCALE, so descenders get sliced off. fitV() grows a too-short box
+   symmetrically to the line height (identity-cached per font). */
 var LH_F=[], LH_V=[];
 function lineH(gr,f){
   for(var i=0;i<LH_F.length;i++) if(LH_F[i]===f) return LH_V[i];
@@ -132,8 +108,6 @@ var ICONS={
  compress:"<path d='M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z'/>",
  mic:"<path d='M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z'/>",
  equalizer:"<path d='M10 20h4V4h-4zm-6 0h4v-8H4zm12-11v11h4V9z'/>",
- heart:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2zm0-2.7c3.9-3.54 6-5.65 6-8.5A2.5 2.5 0 0 0 12.86 8h-1.72A2.5 2.5 0 0 0 6 9.5c0 2.85 2.1 4.96 6 8.5z'/>",
- heartFill:"<path d='M12 20.7l-1.35-1.23C5.9 15.28 3 12.7 3 9.5A4.5 4.5 0 0 1 12 6.9 4.5 4.5 0 0 1 21 9.5c0 3.2-2.9 5.78-7.65 10l-1.35 1.2z'/>",
  chevron:"<path d='M7 10l5 5 5-5z'/>",
  sortAsc:"<path d='M4 12l1.41 1.41L11 7.83V20h2V7.83l5.59 5.58L20 12l-8-8-8 8z'/>",
  sortDesc:"<path d='M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.59-5.58L4 12l8 8 8-8z'/>"
@@ -161,13 +135,18 @@ function fmtTime(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+('
 function inRect(x,y,r){ return x>=r.x0 && x<r.x1 && y>=r.y0 && y<r.y1; }
 function cxOf(x,w,cw){ return x+Math.round((w-cw)/2); }   // x that centres a cw-wide thing inside [x,w]
 function clamp01(v){ return v<0?0:(v>1?1:v); }
+function clampPx(v,max){ return v<0?0:(v>max?max:v); }
+function hitIdx(list,x,y){ for(var i=0;i<list.length;i++) if(inRect(x,y,list[i])) return i; return -1; }
+function hit(list,x,y){ var i=hitIdx(list,x,y); return i<0?null:list[i]; }
+function labelOf(list,v,dflt){ for(var i=0;i<list.length;i++) if(list[i][1]===v) return list[i][0]; return dflt; }
+function playingLoc(){ return plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null; }
+function visiblePlaylists(){ var a=[]; for(var i=0;i<plman.PlaylistCount;i++) if(!isHiddenPl(plman.GetPlaylistName(i))) a.push(i); return a; }
 function vol2pos(v){ return Math.pow(2, v/10); }                                   // dB(-100..0) -> 0..1
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(0,10*Math.log(p)/Math.LN2)); } // 0..1 -> dB
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }
-// Spotify-style shuffle + repeat. Repeat maps to native PlaybackOrder (0/1/2); SHUFFLE is our own
-// (we play from a hidden shuffled copy of the playlist -> accurate "next up"). See shuffle engine below.
-var pbShuffle=true, pbRepeat=0;   // shuffle defaults ON at startup/reload. pbRepeat: 0 off | 1 all | 2 one
+// Repeat maps to native PlaybackOrder; shuffle is ours (a hidden shuffled copy -> accurate "next up").
+var pbShuffle=true, pbRepeat=0;   // shuffle defaults ON. pbRepeat: 0 off | 1 all | 2 one
 function applyPlaybackOrder(){ setOrder(pbRepeat===2?2:(pbRepeat===1?1:0)); }   // native handles repeat only
 function syncOrderFromFb(){ var o=readOrder(); pbRepeat=(o===2)?2:(o===1?1:0); }
 function toggleShuffle(){
@@ -177,10 +156,8 @@ function toggleShuffle(){
 }
 function cycleRepeat(){ pbRepeat=(pbRepeat+1)%3; applyPlaybackOrder(); }
 
-/* ------------------------- album art (ASYNC cache, keyed by album) -------------------------
-   Covers are decoded off the paint thread via utils.GetAlbumArtAsyncV2 so scrolling never
-   blocks: a miss draws the placeholder and requests the art; when it arrives we cache it and
-   repaint (coalesced). warmArt() pre-requests a set so covers are ready before you scroll to them. */
+/* ---- album art: async cache keyed by album. A miss draws the placeholder and requests the
+   art off the paint thread; arrival caches it and repaints (coalesced). warmArt() pre-requests. */
 var artCache={}, albKeyCache={}, thumbCache={}, artPending={}, artRepaintPending=false;
 function albKey(h){ if(!h) return ''; var p=h.Path; if(albKeyCache.hasOwnProperty(p)) return albKeyCache[p]; var k=TF.albkey.EvalWithMetadb(h); albKeyCache[p]=k; return k; }
 function artWarmRepaint(){ if(artRepaintPending) return; artRepaintPending=true; window.SetTimeout(function(){ artRepaintPending=false; repaintAll(); },60); }
@@ -257,33 +234,25 @@ function loadArtist(name){
   for(var j=0;j<order.length;j++) artistAlbums.push(map[order[j]]);
 }
 
-/* ------------------------- "All Songs" library view -------------------------
-   One index of every library track (built once, invalidated by the library callbacks),
-   expanded into a flat ROW list: group headers and track rows in display order, each
-   carrying its own height + precomputed y. Grouping never re-reads the library - it just
-   re-sorts the index and rebuilds the rows, so switching modes is instant.
-   Rows: {k:'g1'|'g2'|'t'}. Headers additionally carry kind:'artist'|'album'. */
+/* ---- "All Songs" library view: one index of every library track (built once, invalidated by
+   the library callbacks), expanded into a flat ROW list of headers + tracks in display order,
+   each carrying its own height + precomputed y. Grouping only re-sorts the index, never re-reads
+   the library. Rows: {k:'g1'|'g2'|'t'}; headers also carry kind:'artist'|'album'. */
 var songsIdx=null, songsRows=null, songsTracks=null, songsContentH=0, songsTotalSec=0;
 var songsGroup='none', songsScroll=0, songsScrollT=0, SONGS_MAXPX=0;
 var sgMenuOpen=false, SG_HB=[], HB_SG=null, HB_ALLSONGS=null;
 var SONGS_GROUPS=[['No grouping','none'],['By artist','artist'],['By album','album'],['By artist & album','both']];
-/* ---- group-list metrics ----
-   One indent step per nesting level (SG_IND), and one vertical rhythm shared by every group
-   header: GAP above the block (the divider rule sits at its very top), then artwork, then
-   PADB below. Header heights are DERIVED from those parts instead of hand-tuned, so the space
-   above and below a header is the same everywhere and every tier lines up on the same grid.
-   SG_H1B is the artist banner in artist+album mode - the same block wrapped in a slab, so it
-   outweighs the album headers nested under it without breaking the rhythm.
-   SG_CROP is the over-paint band that hides the top partial row (this engine has no clip API);
-   it must exceed the tallest thing a row can paint above its own top edge, and SHEAD is sized
-   so the band can never reach up into the album art. */
+/* ---- group-list metrics: one indent step per nesting level (SG_IND) and one shared vertical
+   rhythm per header -- GAP above (the divider sits at its top), artwork, PADB below. Header
+   heights are DERIVED from those parts so every tier lands on the same grid. SG_H1B is the
+   artist banner (same block in a slab). SG_CROP is the over-paint band hiding the top partial
+   row (no clip API); it must exceed the tallest thing a row paints above its own top edge. */
 var SG_IND=32, SG_GAP1=24, SG_GAP2=14, SG_PADB1=12, SG_PADB2=10;
 var SG_ART1=56, SG_ART2=44, SG_TGAP=18, SG_SLABP=10;
 var SG_H1=SG_GAP1+SG_ART1+SG_PADB1;                  // 92  top-level header
 var SG_H1B=SG_GAP1+SG_SLABP*2+SG_ART1+SG_PADB1;      // 112 artist banner (slab around artwork)
 var SG_H2=SG_GAP2+SG_ART2+SG_PADB2;                  // 68  nested header
 var SG_TRH=44, SHEAD=312, SG_CROP=96;
-function sgLabel(){ for(var i=0;i<SONGS_GROUPS.length;i++) if(SONGS_GROUPS[i][1]===songsGroup) return SONGS_GROUPS[i][0]; return 'No grouping'; }
 function getSongsIdx(){
   if(songsIdx) return songsIdx;
   var lib=null; try{ lib=fb.GetLibraryItems(); }catch(e){}
@@ -327,8 +296,8 @@ function buildSongsRows(){
   }
   var yy=0;
   for(i=0;i<rows.length;i++){ rows[i].y=yy; yy+=rows[i].h; }
-  // Link every row back to its owning top-level header and record where each group ends, so
-  // the connector rail can still be drawn when the header itself has scrolled off the top.
+  // link each row to its top-level header + record where the group ends, so the connector
+  // rail still draws once the header itself has scrolled off the top
   var last=-1;
   for(i=0;i<rows.length;i++){
     if(rows[i].k==='g1'){ if(last>=0) rows[last].y1=rows[i].y; last=i; }
@@ -337,7 +306,7 @@ function buildSongsRows(){
   if(last>=0) rows[last].y1=yy;
   songsRows=rows; songsTracks=tracks; songsContentH=yy+24;
 }
-// first row whose bottom is below the scroll position (binary search - the list can be thousands of rows)
+// first row whose bottom is below the scroll position (binary search: thousands of rows)
 function songsFirstAt(py){
   var lo=0, hi=songsRows.length-1, res=songsRows.length;
   while(lo<=hi){ var m=(lo+hi)>>1; if(songsRows[m].y+songsRows[m].h>py){ res=m; hi=m-1; } else lo=m+1; }
@@ -354,16 +323,15 @@ function playSongsRow(ti){
 }
 
 /* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
-var lyricsFor=null, lyrics=null; // lyrics: {lines:[{t,text}],synced} | 'none'
-// Pixel-based roll (variable line heights, since long phrases wrap to >1 line).
-var lyScroll=0, lyTarget=0, lyCur=0, lyTimer=null, lySnap=true, lyLay={lyr:null,w:-1};
+var lyricsFor=null, lyrics=null; // {lines:[{t,text}],synced} | 'none'
+var lyScroll=0, lyTarget=0, lyCur=0, lyTimer=null, lySnap=true, lyLay={lyr:null,w:-1};   // pixel roll: lines wrap
 function currentLyricLine(){
   if(!lyrics || lyrics==='none' || !lyrics.synced) return 0;
   var pt=fb.PlaybackTime, c=0;
   for(var i=0;i<lyrics.lines.length;i++){ if(lyrics.lines[i].t<=pt) c=i; else break; }
   return c;
 }
-// Wrap each phrase to the given width+font and precompute cumulative block geometry. Cached by width+font.
+// wrap each phrase to width+font, precompute cumulative block geometry (cached by width+font)
 function lyLayout(gr,maxW,font){
   font=font||FONT.lyric;
   if(lyLay.lyr===lyrics && lyLay.w===maxW && lyLay.font===font) return lyLay;
@@ -379,7 +347,7 @@ function lyLayout(gr,maxW,font){
   lyLay={lyr:lyrics,w:maxW,font:font,subs:subs,top:top,cen:cen,blockH:blockH,subLh:subLh};
   return lyLay;
 }
-// Shared rolling synced-lyric renderer (queue tab + fullscreen). align: 'c' centred / 'l' left.
+// rolling synced lyrics (queue tab + fullscreen). align: 'c' centred / 'l' left
 function drawRollingLyrics(gr,x,top,w,bot,font,curCol,align){
   var viewMid=Math.round((top+bot)/2), L=lyLayout(gr,w,font), subLh=L.subLh, li,s;
   lyCur=currentLyricLine();
@@ -394,13 +362,25 @@ function drawRollingLyrics(gr,x,top,w,bot,font,curCol,align){
     for(s=0;s<parts.length;s++){ if(align==='l') tL(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); else tC(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); }
   }
 }
+// unsynced lyrics: plain top-down block, no roll
+function drawStaticLyrics(gr,x,w,yy,bot,font,gapMul){
+  stopLyAnim();
+  var L=lyLayout(gr,w,font), li, s;
+  for(li=0;li<lyrics.lines.length;li++){
+    var p=L.subs[li];
+    for(s=0;s<p.length && yy+L.subLh<=bot; s++){ tC(gr,p[s],font,COL.text2,x,yy,w,L.subLh); yy+=L.subLh; }
+    yy+=Math.round(L.subLh*gapMul);
+    if(yy>=bot) break;
+  }
+}
+function noLyrics(){ return !lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length; }
 function lyTick(){
   var d=lyTarget-lyScroll; if(Math.abs(d)<0.5){ lyScroll=lyTarget; stopLyAnim(); } else lyScroll+=d*0.25;
   if(fsMode){ repaintAll(); } else { dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 }
 function startLyAnim(){ if(!lyTimer) lyTimer=window.SetInterval(lyTick,16); }   // 60fps roll
 function stopLyAnim(){ if(lyTimer){ window.ClearInterval(lyTimer); lyTimer=null; } }
-// Blinking text caret in the Search box, so it reads as a focused, ready-to-type field.
+// blinking caret in the Search box / rename dialog
 var caretOn=true, caretTimer=null;
 function caretTick(){
   if(renameEdit){ caretOn=!caretOn; repaintAll(); return; }              // caret sits in a playlist row/card
@@ -454,8 +434,8 @@ function artHue(h,seed){
   if(img){ try{ var s=img.GetColourScheme(1); if(s && s.length) col=s[0]; }catch(e){} }
   hueCache[k]=col; return col;
 }
-/* masked art: circular (artists) / rounded (large covers). Masks + masked copies are cached;
-   ApplyMask mutates, so it's applied to a resized COPY, never the shared original. */
+/* masked art: circular (artists) / rounded (large covers). Masks + results are cached;
+   ApplyMask mutates, so it runs on a resized COPY, never the shared original. */
 var maskCache={}, cArtCache={};
 function circleMask(size){
   var k='c'+size; if(maskCache[k]) return maskCache[k];
@@ -470,7 +450,7 @@ function roundMask(size,rad){
   m.ReleaseGraphics(g); maskCache[k]=m; return m;
 }
 function maskedArt(h,seed,size,mask,tag){
-  var k=(h?albKey(h):(seed||''))+'|'+size+'|'+tag;   // keyed by actual album, not just the caller's seed label (seed alone is constant e.g. 'np' for now-playing, which would cache stale art across track changes)
+  var k=(h?albKey(h):(seed||''))+'|'+size+'|'+tag;   // keyed by album, not the seed label ('np' is constant -> stale art)
   if(cArtCache.hasOwnProperty(k)) return cArtCache[k];
   var art=h?getArt(h):null;
   if(h && !artLoaded(albKey(h))) return null;   // still loading -> placeholder, don't cache
@@ -488,8 +468,7 @@ function drawRounded(gr,x,y,size,rad,h,seed){
   if(ri) gr.DrawImage(ri,x,y,size,size,0,0,ri.Width,ri.Height,0,255);
   else gr.FillRoundRect(x,y,size,size,rad,rad,coverCol(seed));
 }
-/* Playlist cover: first up-to-4 DISTINCT albums (optimistic; art loads async, placeholder if none).
-   >=4 -> 2x2 mosaic; otherwise a single cover. */
+/* playlist cover: first up-to-4 DISTINCT albums -> 2x2 mosaic, else a single cover */
 var plCoverCache={}, mosaicCache={};
 function plCovers(pi){
   if(plCoverCache.hasOwnProperty(pi)) return plCoverCache[pi];
@@ -531,8 +510,7 @@ function drawPlCover(gr,x,y,size,rad,pi,seed){
   if(cov.list.length>=4){ var mi=mosaicImg(cov.list,seed,size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
   drawRounded(gr,x,y,size,rad,cov.single,seed);
 }
-/* "All Songs" cover: 4 distinct albums sampled ACROSS the whole library (not just the first
-   few), so the mosaic reads as the library rather than as whichever album sorts first. */
+/* "All Songs" cover: 4 distinct albums sampled ACROSS the library, not just the first few */
 var libCovCache=null, libCount_=-1;
 function libCount(){ if(libCount_<0){ var l=null; try{ l=fb.GetLibraryItems(); }catch(e){} libCount_=l?l.Count:0; } return libCount_; }
 function libCovers(){
@@ -558,39 +536,39 @@ function fmtNum(n){ n=String(n); var out='', c=0; for(var i=n.length-1;i>=0;i--)
 
 /* ------------------------- state ------------------------- */
 var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='';
-// Repaint scope flags. dirtyAll (sticky) forces a full paint; the partial flags
-// accumulate. A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint
-// serviced while a partial flag is pending can't blank the rest of the window.
+// Repaint scope flags. dirtyAll (sticky) forces a full paint; partial flags accumulate.
+// A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint serviced while a
+// partial flag is pending can't blank the rest of the window.
 var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false;
+function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=false; }
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
-function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); }   // scroll: main panel only
+function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); }
 function repaintNav(){ dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
 var firstRow=0, hoverKey='', scrollKey='', mx=-1, my=-1, drag=null, dragFrac=0, WHEEL_PX=180;
-// smooth (eased) scrolling for the continuous lists: animate the rendered position toward a target
+// eased scrolling: animate each rendered position toward its target, repainting only the moving region
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var moving=false, mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll;
-  if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; moving=true; mm=true; } else firstRow=firstRowT;
-  if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; moving=true; mm=true; } else homeScroll=homeScrollT;
-  if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; moving=true; mm=true; } else songsScroll=songsScrollT;
-  if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; moving=true; mm=true; } else searchScroll=searchScrollT;
-  if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; moving=true; nm=true; } else navScroll=navScrollT;
-  if(mm) repaintMain(); if(nm) repaintNav();   // repaint only the region that's scrolling -> high fps
-  if(!moving) stopScrollAnim();
+  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll;
+  if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; mm=true; } else firstRow=firstRowT;
+  if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; mm=true; } else homeScroll=homeScrollT;
+  if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; mm=true; } else songsScroll=songsScrollT;
+  if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; mm=true; } else searchScroll=searchScrollT;
+  if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; nm=true; } else navScroll=navScrollT;
+  if(mm) repaintMain();
+  if(nm) repaintNav();
+  if(!mm && !nm) stopScrollAnim();
 }
 function startScrollAnim(){ if(!scrollTimer) scrollTimer=window.SetInterval(scrollTick,16); }
 function stopScrollAnim(){ if(scrollTimer){ window.ClearInterval(scrollTimer); scrollTimer=null; } }
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
-var HB_PL=[], HB_TR=[], HB_PREFS=null, HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[];
-var HB_CARD=[], HB_ARTIST=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
+var HB_PL=[], HB_TR=[], HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[];
+var HB_CARD=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
-// Deferred "scroll this playlist into view": drawNav is the only place that knows the row
-// geometry and the post-insert row count, so the request is queued and consumed there.
+// deferred "scroll this playlist into view" -- only drawNav knows the row geometry, so it consumes this
 var navRevealPl=-1;
 function revealPlaylist(i){ navRevealPl=i; }
-// empty-playlist "add songs" zone: drop cue + the two browse buttons
-var plDropHover=false, HB_PLADD_FILES=null, HB_PLADD_FOLDER=null;
-// playlist edit: right-click / hover-dots context menu, inline rename, delete confirm
+var plDropHover=false, HB_PLADD_FILES=null, HB_PLADD_FOLDER=null;   // empty-playlist "add songs" zone
+// playlist edit: context menu, inline rename, delete confirm
 var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null, RENAME_HB=null;
 function openPlaylistMenu(pl,x,y){
   var items=[];
@@ -599,8 +577,7 @@ function openPlaylistMenu(pl,x,y){
   ctxMenu={kind:'pl', pl:pl, name:plman.GetPlaylistName(pl), x:x, y:y, items:items};
   repaintAll();
 }
-// Track-level menu (right-click a row in the playlist view). Locked/auto playlists have no
-// removable rows, so there's nothing to offer -> fall through to JSplitter's own panel menu.
+// right-click a playlist row. Locked/auto playlists offer nothing -> fall through to JSplitter's menu
 function openTrackMenu(pl,item,x,y){
   if(!canEditPl(pl)) return false;
   ctxMenu={kind:'track', pl:pl, item:item, x:x, y:y,
@@ -612,19 +589,17 @@ function canEditPl(pl){
   try{ if(plman.IsPlaylistLocked(pl) || plman.IsAutoPlaylist(pl)) return false; }catch(e){}
   return true;
 }
-// Is this row the track you are currently hearing? Only when playback runs straight off this
-// playlist does the location point at the row, so the index match is used there (it tells
-// duplicates apart). Anything else - the hidden SHUF / ROUTE copies this skin plays through, or
-// another playlist entirely - reports a foreign PlaylistIndex, so fall back to matching the file.
+// Is this row the track you're hearing? Only playback straight off this playlist points the
+// location at the row (index match tells duplicates apart); the hidden SHUF/ROUTE copies report
+// a foreign PlaylistIndex, so fall back to matching the file.
 function isRowPlaying(pl,item,h){
   if(!fb.IsPlaying && !fb.IsPaused) return false;
-  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+  var loc=playingLoc();
   if(loc && loc.IsValid && loc.PlaylistIndex===pl) return loc.PlaylistItemIndex===item;
   return sameHandle(h,NP);
 }
-// Removing the playing item does NOT stop foobar - the file plays on to its end - so confirm the
-// fb.Next() hand-off actually took once the playlist edit has settled. If the removed file is
-// still the one playing, push again, and stop if there was simply nowhere to go.
+// Removing the playing item does NOT stop foobar, so confirm the fb.Next() hand-off actually
+// took once the edit settled: push again if not, stop if there was nowhere to go.
 function verifyAdvanced(h){
   window.SetTimeout(function(){
     var np=null; try{ np=fb.GetNowPlaying(); }catch(e){}
@@ -636,9 +611,8 @@ function verifyAdvanced(h){
     },150);
   },60);
 }
-// Drop the row out of the manual playback queue ("Next in queue" in the right panel). Entries
-// normally carry a playlist reference; ones queued by handle alone (PlaylistIndex < 0) are matched
-// by file instead. Must run BEFORE the playlist removal, while the item indices still line up.
+// Drop the row out of the manual playback queue. Entries queued by handle alone (PlaylistIndex < 0)
+// are matched by file. Must run BEFORE the playlist removal, while item indices still line up.
 function dequeueRow(pl,item,h){
   var q=null; try{ q=plman.GetPlaybackQueueContents(); }catch(e){ q=null; }
   if(!q || !q.length) return;
@@ -650,8 +624,7 @@ function dequeueRow(pl,item,h){
   }
   if(kill.length){ try{ plman.RemoveItemsFromPlaybackQueue(kill); }catch(e2){} }
 }
-// With shuffle on, "next up" is read from the hidden shuffled copy, so a track removed from the
-// source would still come round later. Pull every instance of it out of that copy too.
+// shuffle reads "next up" from the hidden copy, so pull every instance out of that too
 function removeFromShuffleCopy(pl,h){
   if(!pbShuffle || !h || pl<0) return;
   if(plman.GetPlaylistName(pl)!==shufSrcName) return;      // a different playlist is the shuffle source
@@ -668,11 +641,8 @@ function removeFromShuffleCopy(pl,h){
     plman.ClearPlaylistSelection(si);
   }catch(e){}
 }
-// Remove one row. RemovePlaylistSelection is selection-based, so select just that item first;
-// UndoBackup keeps foobar's own Edit > Undo working. on_playlist_items_removed repaints us.
-// Removing the track that is playing hands playback on first (fb.Next honours the manual queue),
-// so the file is no longer the playing item by the time it leaves the playlist. Paused playback
-// stops instead of advancing - deleting the track you're parked on shouldn't start audio.
+// Remove one row: RemovePlaylistSelection is selection-based, so select just that item first.
+// Removing the playing track hands playback on first; paused playback stops instead of advancing.
 function removeTrackFromPl(pl,item){
   if(!canEditPl(pl) || item<0 || item>=plman.PlaylistItemCount(pl)) return;
   var items=getItems(pl), h=(items && item<items.Count)?items[item]:null;
@@ -687,7 +657,7 @@ function removeTrackFromPl(pl,item){
     plman.RemovePlaylistSelection(pl,false);
     plman.ClearPlaylistSelection(pl);
   }catch(e){}
-  if(playing && !wasPaused) verifyAdvanced(h);   // the row is gone now: make sure playback really moved on
+  if(playing && !wasPaused) verifyAdvanced(h);
   invalidateItems(); updateNP(); repaintAll();
 }
 function startRename(pl){ renameEdit={pl:pl, text:plman.GetPlaylistName(pl)}; ctxMenu=null; caretOn=true; startCaret(); applyKeyMode(); repaintAll(); }
@@ -697,14 +667,12 @@ function doDeletePlaylist(pl){
   var wasShown=(view==='playlist' && pl===plman.ActivePlaylist);
   try{ plman.RemovePlaylist(pl); }catch(e){}
   confirmDel=null; invalidateItems();
-  if(wasShown || plman.PlaylistCount===0) view='home';   // don't strand the playlist view on a deleted list
+  if(wasShown || plman.PlaylistCount===0) view='home';   // don't strand the view on a deleted list
   repaintAll();
 }
-/* ---- duplicate detection -------------------------------------------------------
-   Neither insert path lets us vet the incoming files first: DropTargetAction exposes
-   Playlist/Base write-only, and fb.AddFiles owns its own dialog and returns nothing.
-   So we snapshot the playlist before an insert we triggered, diff it once the items
-   land, and offer to drop the extra copies. Same end state, one step later. */
+/* ---- duplicate detection: neither insert path lets us vet incoming files first (DropTargetAction
+   is write-only, fb.AddFiles returns nothing), so snapshot the playlist before an insert we
+   triggered, diff once the items land, and offer to drop the extra copies. */
 var dupWatch=null, dupPrompt=null, DUP_HB=null;
 function trackKey(h){ return h ? (h.RawPath+'#'+h.SubSong).toLowerCase() : ''; }   // same file, same subsong
 function armDupWatch(pl){
@@ -753,68 +721,59 @@ function drawDots(gr,cx,cy,pl){
   drawIcon(gr,'more',COL.text,cx,cy,24,24,18);
   HB_DOTS.push({x0:cx-2,y0:cy-2,x1:cx+26,y1:cy+26,pl:pl,mx:cx,my:cy+26});
 }
-// Rounded outline. GDI+ rejects an arc bigger than half the side and centres a stroke on
-// the path, so inset by the line width first, then clamp the radius to what's left.
+// Rounded outline. GDI+ rejects an arc bigger than half the side and centres a stroke on the
+// path, so inset by the line width first, then clamp the radius to what's left.
 function strokeRound(gr,x,y,w,h,rad,lw,col){
   var i=lw/2, sw=w-lw, sh=h-lw;
   if(sw<=0 || sh<=0) return;
   var a=Math.min(rad,sw/2,sh/2);
   gr.DrawRoundRect(x+i,y+i,sw,sh,a,a,lw,col);
 }
-// Always-visible, draggable scrollbar. Each scrollable view calls this at the end
-// of its draw; setScroll() maps a drag/click to that view's scroll index.
-// Pixel-based scrollbar: thumb size/pos from viewport vs content height, position from scrollPx/maxPx.
-function drawScrollbar(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
-  if(contentH<=viewH || h<=6 || !show){ SB=null; return; }   // hidden until the section is hovered
-  var sw=6;
-  gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,20));
-  var thumbH=Math.max(36,Math.round(h*viewH/contentH)); if(thumbH>h) thumbH=h;
+/* Draggable pixel scrollbar, hidden until its section is hovered. Thumb size comes from
+   viewport vs content height, position from scrollPx/maxPx. Each scrollable view calls this
+   at the end of its draw; the matching set*() maps a drag/click back to a scroll offset. */
+var SB_MAIN={sw:6,min:36,track:20,on:175,off:95,key:'scroll'};
+var SB_NAV ={sw:5,min:30,track:16,on:150,off:80,key:'scrolln'};
+function drawSBV(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show,s){
+  if(contentH<=viewH || h<=6 || !show) return null;
+  gr.FillSolidRect(sx,top,s.sw,h,RGBA(255,255,255,s.track));
+  var thumbH=Math.max(s.min,Math.round(h*viewH/contentH)); if(thumbH>h) thumbH=h;
   var ty=top+(maxPx>0?Math.round((h-thumbH)*scrollPx/maxPx):0);
-  var on=(drag==='scroll')||hv(sx-6,top,sx+sw+6,top+h);
-  gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?175:95));
-  SB={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
+  var on=(drag===s.key)||hv(sx-6,top,sx+s.sw+6,top+h);
+  gr.FillSolidRect(sx,ty,s.sw,thumbH,RGBA(255,255,255,on?s.on:s.off));
+  return {x0:sx-6,y0:top,x1:sx+s.sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
 }
+function drawScrollbar(gr,sx,top,h,sp,mp,vh,ch,show){ SB=drawSBV(gr,sx,top,h,sp,mp,vh,ch,show,SB_MAIN); }
+function drawScrollbarN(gr,sx,top,h,sp,mp,vh,ch,show){ SBN=drawSBV(gr,sx,top,h,sp,mp,vh,ch,show,SB_NAV); }
+function sbFrac(v,start,size,thumb){ return clamp01((v-start-thumb/2)/Math.max(1,size-thumb)); }
+// scroll + target are set together so the easing animation doesn't fight the drag
 function setScroll(y){
   if(!SB) return;
-  var frac=clamp01((y-SB.top-SB.thumbH/2)/Math.max(1,SB.h-SB.thumbH));
-  if(view==='playlist'){ firstRow=firstRowT=Math.round(frac*SB.maxPx); }    // continuous (pixels); sync target so easing doesn't fight the drag
-  else if(view==='home'){ homeScroll=homeScrollT=Math.round(frac*SB.maxPx); }   // continuous (pixels)
-  else if(view==='songs'){ songsScroll=songsScrollT=Math.round(frac*SB.maxPx); }
-  else if(view==='search'){ searchScroll=searchScrollT=Math.round(frac*SB.maxPx); }
+  var px=Math.round(sbFrac(y,SB.top,SB.h,SB.thumbH)*SB.maxPx);
+  if(view==='playlist') firstRow=firstRowT=px;
+  else if(view==='home') homeScroll=homeScrollT=px;
+  else if(view==='songs') songsScroll=songsScrollT=px;
+  else if(view==='search') searchScroll=searchScrollT=px;
   repaintMain();
 }
-// Dedicated scrollbar for the sidebar playlist list (independent of the main view).
-function drawScrollbarN(gr,sx,top,h,scrollPx,maxPx,viewH,contentH,show){
-  if(contentH<=viewH || h<=6 || !show){ SBN=null; return; }   // hidden until the section is hovered
-  var sw=5;
-  gr.FillSolidRect(sx,top,sw,h,RGBA(255,255,255,16));
-  var thumbH=Math.max(30,Math.round(h*viewH/contentH)); if(thumbH>h) thumbH=h;
-  var ty=top+(maxPx>0?Math.round((h-thumbH)*scrollPx/maxPx):0);
-  var on=(drag==='scrolln')||hv(sx-6,top,sx+sw+6,top+h);
-  gr.FillSolidRect(sx,ty,sw,thumbH,RGBA(255,255,255,on?150:80));
-  SBN={x0:sx-6,y0:top,x1:sx+sw+6,y1:top+h,top:top,h:h,thumbH:thumbH,maxPx:maxPx};
-}
-function setScrollN(y){ if(!SBN) return; var frac=clamp01((y-SBN.top-SBN.thumbH/2)/Math.max(1,SBN.h-SBN.thumbH)); navScroll=navScrollT=Math.round(frac*SBN.maxPx); repaintNav(); }
+function setScrollN(y){ if(!SBN) return; navScroll=navScrollT=Math.round(sbFrac(y,SBN.top,SBN.h,SBN.thumbH)*SBN.maxPx); repaintNav(); }
 // create a uniquely-named empty playlist, return its index
 function newPlaylistName(){ var b='New Playlist', nm=b, k=1, i; for(;;){ var hit=false; for(i=0;i<plman.PlaylistCount;i++){ if(plman.GetPlaylistName(i)===nm){ hit=true; break; } } if(!hit) return nm; k++; nm=b+' '+k; } }
 function createNewPlaylist(){ return plman.CreatePlaylist(plman.PlaylistCount, newPlaylistName()); }
-// Native multi-select pickers. fb.AddFiles/AddDirectory take no arguments and always target the
-// ACTIVE playlist, so point it at the destination first. (utils.FilePicker is single-select only.)
-// The insert is async; on_playlist_items_added already invalidates the caches and repaints.
+// fb.AddFiles/AddDirectory take no arguments and always target the ACTIVE playlist, so point it
+// at the destination first. The insert is async; on_playlist_items_added repaints.
 function addFilesToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; armDupWatch(i); fb.AddFiles(); }
 function addFolderToPl(i){ if(i<0 || plman.IsPlaylistLocked(i)) return; plman.ActivePlaylist=i; armDupWatch(i); fb.AddDirectory(); }
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
 var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
-// Keyboard capture on only in Search view. Re-asserted every full paint + on_size
-// because JSplitter can reset window.DlgCode on resize/reload.
+// Re-asserted every full paint + on_size: JSplitter can reset window.DlgCode on resize/reload.
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
 var ROUTE='__spotify_np__'; // hidden playlist used to play library tracks (artist page / search)
-/* ------------------------- custom shuffle engine ------------------------- */
-// Shuffle plays from a hidden shuffled copy so the "next up" list is the real order.
-// Reshuffles every time shuffle is toggled on / a playlist is started while shuffle is on.
-var SHUF='__spotify_shuffle__', shufSrcName='', lastShufIdx=-1;   // shufSrcName = the real playlist we shuffled from
+/* ---- shuffle engine: plays from a hidden shuffled copy so "next up" is the real order.
+   Reshuffles whenever shuffle is toggled on, or a playlist starts while shuffle is on. */
+var SHUF='__spotify_shuffle__', shufSrcName='', lastShufIdx=-1;   // shufSrcName = the real source playlist
 function isHiddenPl(nm){ return nm===ROUTE || nm===SHUF; }
 function playlistOfName(nm){ for(var i=0;i<plman.PlaylistCount;i++) if(plman.GetPlaylistName(i)===nm) return i; return -1; }
 function handleArray(pi){ var it=getItems(pi), a=[]; if(it){ for(var i=0;i<it.Count;i++) a.push(it[i]); } return a; }
@@ -836,8 +795,7 @@ function playShuffled(pi,startHandle,name,preservePos){   // build hidden shuffl
   if(preservePos && wasActive && pos>0){ try{ fb.PlaybackTime=pos; }catch(e){} }
   lastShufIdx=0; invalidateItems();
 }
-// On loop-around, reshuffle the upcoming tracks so the next pass differs. Reorders the hidden
-// SHUF playlist in place (keeps the currently-playing item 0, no restart).
+// on loop-around, reshuffle the tail in place so the next pass differs (item 0 stays put, no restart)
 function reshuffleTail(shufPi){
   var it=getItems(shufPi), n=it.Count; if(n<=2) return;
   var tail=[], i; for(i=1;i<n;i++) tail.push(it[i]);
@@ -849,12 +807,12 @@ function reshuffleTail(shufPi){
   plman.InsertPlaylistItems(shufPi,1,hl,false);
   invalidateItems();
 }
-function shuffleEnterFromCurrent(){   // toggled shuffle ON mid-playback -> reshuffle the current source, keep current track
-  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+function shuffleEnterFromCurrent(){   // shuffle ON mid-playback: reshuffle the source, keep the current track
+  var loc=playingLoc();
   var src=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist; if(src<0) return;
   playShuffled(src,NP,plman.GetPlaylistName(src),true);
 }
-function shuffleExitToSource(){   // toggled shuffle OFF -> resume the real playlist at the current track, in order
+function shuffleExitToSource(){   // shuffle OFF: resume the real playlist at the current track, in order
   var si=playlistOfName(shufSrcName); if(si<0) return;
   var it=getItems(si), idx=0; if(it){ for(var i=0;i<it.Count;i++) if(sameHandle(it[i],NP)){ idx=i; break; } }
   var savedActive=plman.ActivePlaylist, wasActive=(fb.IsPlaying||fb.IsPaused), pos=fb.PlaybackTime;
@@ -866,11 +824,10 @@ function playPlaylistItem(pl,item){   // clicking a track: shuffle-aware
   if(pbShuffle) playShuffled(pl,getItems(pl)[item],plman.GetPlaylistName(pl),false);
   else plman.ExecutePlaylistDefaultAction(pl,item);
 }
-/* Clicking a row in the right-hand queue jumps straight to it. Deliberately NOT playPlaylistItem():
-   under shuffle the queue lists the hidden shuffled playlist, and playPlaylistItem would reshuffle
-   it -- throwing away the very running order the user is looking at. A plain jump keeps it intact. */
+/* Queue rows jump straight to the track -- deliberately NOT playPlaylistItem(), which would
+   reshuffle the hidden playlist and throw away the running order the user is looking at. */
 function playQueueNext(pl,item){ try{ plman.ExecutePlaylistDefaultAction(pl,item); }catch(e){} }
-// A manually-queued row: play it and drop it from the queue, since it is no longer "up next".
+// manually-queued row: play it and drop it from the queue, it is no longer "up next"
 function playQueueItem(qi){
   var c=null; try{ c=plman.GetPlaybackQueueContents(); }catch(e){ c=null; }
   if(!c || !c.length || qi>=c.length) return;
@@ -897,8 +854,7 @@ function drawScrollbarH(gr,sx,top,w,scrollX,maxX,viewW,contentW,show){
 }
 function setScrollH(x){   // shelf stays card-stepped
   if(!SBH) return;
-  var frac=clamp01((x-SBH.left-SBH.thumbW/2)/Math.max(1,SBH.w-SBH.thumbW));
-  plScroll=Math.round(frac*SBH.maxIdx); repaintAll();
+  plScroll=Math.round(sbFrac(x,SBH.left,SBH.w,SBH.thumbW)*SBH.maxIdx); repaintAll();
 }
 var plCacheMap={}, plMetaMap={};
 function getItems(pi){ if(!plCacheMap[pi]){ plCacheMap[pi]=plman.GetPlaylistItems(pi); } return plCacheMap[pi]; }
@@ -921,14 +877,11 @@ function fmtDur(s){
 }
 function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; }
 
-/* ---- Playlist view: sort-by state, same "recompute only when the setting changes" shape
-   as the All Songs grouping (songsGroup/buildSongsRows). Sorting only reorders how the
-   playlist's own rows are DISPLAYED - native item indices (used for playback, the row-menu,
-   drag targets, etc.) are untouched, so order[displayRow] simply maps to the real item index. */
+/* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
+   row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */
 var plSort='artist', plSortDir='asc', plSortMenuOpen=false, PL_SORT_HB=[], HB_PLSORT=null, HB_PLSORTDIR=null;
 var PL_SORTS=[['Title','title'],['Artist','artist'],['Album','album']];
 var plOrderMap={};
-function plSortLabel(){ for(var i=0;i<PL_SORTS.length;i++) if(PL_SORTS[i][1]===plSort) return PL_SORTS[i][0]; return 'Artist'; }
 function buildPlOrder(pi){
   var meta=getMeta(pi), n=meta.title.length, order=[], i;
   for(i=0;i<n;i++) order.push(i);
@@ -958,7 +911,7 @@ function layout(){
   R.navLib={x:R.navX,y:top0+M.navTopH+g*2,w:R.navW,h:topH-M.navTopH-g*2};   // wider gap to the library card
   R.main={x:R.mainX,y:top0,w:R.mainW,h:topH};
   R.queue={x:R.queueX,y:top0,w:R.queueW,h:topH};
-  // frameless + make the title-bar strip (minus our 3 buttons) an OS caption: drag to move, dbl-click to maximise
+  // frameless; the title-bar strip minus our 3 buttons becomes an OS caption (drag/dbl-click)
   if(UIWizard){ try{ UIWizard.FrameStyle=3; UIWizard.MoveStyle=0; UIWizard.DisableWindowSizing=false; }catch(e){} }
   capW=-1; applyCaption();
   applyKeyMode();
@@ -976,10 +929,10 @@ function repaintBar(){ if(fsMode){ repaintAll(); return; } dirtyBar=true; window
 
 /* ------------------------- paint ------------------------- */
 function panelBg(gr,r,c){ gr.FillRoundRect(r.x,r.y,r.w,r.h,M.radius,M.radius,c); }
-// Carve rounded corners over already-drawn (square) content: blit black corner masks (no clip API).
+// carve rounded corners over already-drawn square content: blit black corner masks (no clip API)
 var CORN=null;
 function buildCorners(rad){
-  var specs={tl:[0,0],tr:[-rad,0],bl:[0,-rad],br:[-rad,-rad]}, q={}, key;
+  var specs={tl:[0,0],tr:[-rad,0]}, q={}, key;
   for(key in specs){
     var im=gdi.CreateImage(rad,rad), g=im.GetGraphics(); g.FillSolidRect(0,0,rad,rad,COL.black); im.ReleaseGraphics(g);
     var mk=gdi.CreateImage(rad,rad), mg=mk.GetGraphics();
@@ -988,27 +941,31 @@ function buildCorners(rad){
   }
   return q;
 }
-function roundPanel(gr,x,y,w,h){
-  var rad=M.radius; if(!CORN) CORN=buildCorners(rad);
-  gr.DrawImage(CORN.tl,x,y,rad,rad,0,0,rad,rad,0,255);
-  gr.DrawImage(CORN.tr,x+w-rad,y,rad,rad,0,0,rad,rad,0,255);
-  gr.DrawImage(CORN.bl,x,y+h-rad,rad,rad,0,0,rad,rad,0,255);
-  gr.DrawImage(CORN.br,x+w-rad,y+h-rad,rad,rad,0,0,rad,rad,0,255);
-}
-function roundTop(gr,x,y,w){   // carve only the top corners (where square gradient/band overrides panelBg rounding)
+// carve only the top corners, where a square gradient/band overrides panelBg's rounding
+function roundTop(gr,x,y,w){
   var rad=M.radius; if(!CORN) CORN=buildCorners(rad);
   gr.DrawImage(CORN.tl,x,y,rad,rad,0,0,rad,rad,0,255);
   gr.DrawImage(CORN.tr,x+w-rad,y,rad,rad,0,0,rad,rad,0,255);
 }
 
-// Themed context menu + delete-confirm overlay, painted on top of everything.
+/* ---- modal dialogs: dim backdrop + drop-shadowed rounded panel, and a capsule button ---- */
+function modalPanel(gr,cw,ch,cy){
+  gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));
+  var cx=Math.round((W-cw)/2);
+  gr.FillSolidRect(cx+4,cy+6,cw,ch,RGBA(0,0,0,140));
+  gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
+  return cx;
+}
+function dlgBtn(gr,x,y,w,h,label,col,hcol,txt){
+  gr.FillRoundRect(x,y,w,h,20,20,hv(x,y,x+w,y+h)?hcol:col);
+  tC(gr,label,FONT.pl,txt,x,y,w,h);
+  return {x0:x,y0:y,x1:x+w,y1:y+h};
+}
+// themed context menu + modal overlays, painted on top of everything
 function drawOverlays(gr){
   CTX_HB=[]; CONF_HB=null; RENAME_HB=null;
   if(renameEdit){
-    gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));            // dim backdrop (modal)
-    var rw=Math.min(420,W-40), rhh=196, rx0=Math.round((W-rw)/2), ry0=Math.round((H-rhh)/2);
-    gr.FillSolidRect(rx0+4,ry0+6,rw,rhh,RGBA(0,0,0,140));
-    gr.FillRoundRect(rx0,ry0,rw,rhh,12,12,RGB(42,42,42));
+    var rw=Math.min(420,W-40), rhh=196, ry0=Math.round((H-rhh)/2), rx0=modalPanel(gr,rw,rhh,ry0);
     tL(gr,'Rename playlist',FONT.sect,COL.text,rx0+28,ry0+22,rw-56,26);
     var ix=rx0+28, iyf=ry0+64, iw=rw-56, ih=46;
     gr.FillRoundRect(ix,iyf,iw,ih,6,6,RGB(62,62,62));
@@ -1016,13 +973,13 @@ function drawOverlays(gr){
     tL(gr,renameEdit.text,FONT.pl,COL.text,ix+14,iyf,iw-28,ih);
     if(caretOn){ var cxr=ix+14+Math.min(iw-30,tw3)+2; gr.FillSolidRect(cxr,iyf+Math.round((ih-20)/2),2,20,COL.text); }
     var canSave=renameEdit.text.replace(/^\s+|\s+$/g,'').length>0;
-    var bw=118, bh=40, gap=14, by=ry0+rhh-bh-22, dx=rx0+rw-28-bw, ccx=dx-gap-bw;
-    gr.FillRoundRect(ccx,by,bw,bh,20,20,hv(ccx,by,ccx+bw,by+bh)?RGB(66,66,66):RGB(52,52,52));
-    tC(gr,'Cancel',FONT.pl,COL.text,ccx,by,bw,bh);
-    var sv=canSave?(hv(dx,by,dx+bw,by+bh)?RGB(45,215,110):COL.green):RGB(60,92,74);
-    gr.FillRoundRect(dx,by,bw,bh,20,20,sv);
-    tC(gr,'Save',FONT.pl,canSave?COL.black:COL.text3,dx,by,bw,bh);
-    RENAME_HB={panel:{x0:rx0,y0:ry0,x1:rx0+rw,y1:ry0+rhh},save:{x0:dx,y0:by,x1:dx+bw,y1:by+bh},cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},canSave:canSave};
+    var bw=118, bh=40, by=ry0+rhh-bh-22, dx=rx0+rw-28-bw, ccx=dx-14-bw;
+    RENAME_HB={
+      panel:{x0:rx0,y0:ry0,x1:rx0+rw,y1:ry0+rhh},
+      cancel:dlgBtn(gr,ccx,by,bw,bh,'Cancel',RGB(52,52,52),RGB(66,66,66),COL.text),
+      save:dlgBtn(gr,dx,by,bw,bh,'Save',canSave?COL.green:RGB(60,92,74),canSave?RGB(45,215,110):RGB(60,92,74),canSave?COL.black:COL.text3),
+      canSave:canSave
+    };
   }
   if(ctxMenu){
     var ih=42, pad=6, i, it, iw=190;
@@ -1041,18 +998,14 @@ function drawOverlays(gr){
     }
   }
   if(confirmDel){
-    gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));             // dim backdrop (modal)
-    var cw=380, ch=180, cx=Math.round((W-cw)/2), cy=Math.round((H-ch)/2);
-    gr.FillSolidRect(cx+4,cy+6,cw,ch,RGBA(0,0,0,140));
-    gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
+    var cw=380, ch=180, cy=Math.round((H-ch)/2), cx=modalPanel(gr,cw,ch,cy);
     tL(gr,'Delete playlist?',FONT.sect,COL.text,cx+28,cy+24,cw-56,26);
     tL(gr,'This removes "'+confirmDel.name+'" from your library.',FONT.pl,COL.text2,cx+28,cy+58,cw-56,40);
-    var bw=118, bh=40, gap=14, by=cy+ch-bh-22, dx=cx+cw-28-bw, ccx=dx-gap-bw;
-    gr.FillRoundRect(ccx,by,bw,bh,20,20,hv(ccx,by,ccx+bw,by+bh)?RGB(66,66,66):RGB(52,52,52));
-    tC(gr,'Cancel',FONT.pl,COL.text,ccx,by,bw,bh);
-    gr.FillRoundRect(dx,by,bw,bh,20,20,hv(dx,by,dx+bw,by+bh)?RGB(240,96,96):RGB(224,72,72));
-    tC(gr,'Delete',FONT.pl,COL.text,dx,by,bw,bh);
-    CONF_HB={cancel:{x0:ccx,y0:by,x1:ccx+bw,y1:by+bh},del:{x0:dx,y0:by,x1:dx+bw,y1:by+bh}};
+    var cbw=118, cbh=40, cby=cy+ch-cbh-22, cdx=cx+cw-28-cbw, cccx=cdx-14-cbw;
+    CONF_HB={
+      cancel:dlgBtn(gr,cccx,cby,cbw,cbh,'Cancel',RGB(52,52,52),RGB(66,66,66),COL.text),
+      del:dlgBtn(gr,cdx,cby,cbw,cbh,'Delete',RGB(224,72,72),RGB(240,96,96),COL.text)
+    };
   }
   if(dupPrompt) drawDupPrompt(gr);
 }
@@ -1062,10 +1015,7 @@ function drawDupPrompt(gr){
   var fit=Math.max(1,Math.floor((H-260)/lh));            // never taller than the window
   var show=Math.min(n,6,fit), more=n-show;
   var cw=Math.min(480,W-40), ch=188+show*lh+(more>0?22:0);
-  var cx=Math.round((W-cw)/2), cy=Math.max(10,Math.round((H-ch)/2));
-  gr.FillSolidRect(0,0,W,H,RGBA(0,0,0,150));             // dim backdrop (modal)
-  gr.FillSolidRect(cx+4,cy+6,cw,ch,RGBA(0,0,0,140));
-  gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
+  var cy=Math.max(10,Math.round((H-ch)/2)), cx=modalPanel(gr,cw,ch,cy);
   var px=cx+28, pw=cw-56, y=cy+24;
   tL(gr,n===1?'1 song is already here':(n+' songs are already here'),FONT.sect,COL.text,px,y,pw,26); y+=34;
   tL(gr,'Already in "'+dupPrompt.name+'":',FONT.pl,COL.text2,px,y,pw,22); y+=30;
@@ -1082,14 +1032,14 @@ function drawDupPrompt(gr){
 }
 function on_paint(gr){
   gr.SetSmoothingMode(2);
-  if(fsMode){ dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false; HB_DOTS=[]; drawFullscreen(gr); return; }
+  if(fsMode){ clearDirty(); HB_DOTS=[]; drawFullscreen(gr); return; }
   var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav;
-  // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over
-  // the region it redraws -- the bar's 1 Hz playback repaint would flash back to full brightness.
-  // While any overlay owns the screen, every paint goes through the full path.
+  // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over the
+  // region it redraws (the bar's 1 Hz repaint would flash back to full brightness). While an
+  // overlay owns the screen, every paint takes the full path.
   var modal=renameEdit||ctxMenu||confirmDel||dupPrompt;
-  if(dirtyAll || !anyPartial || modal){ // full paint, or an OS/stale paint we can't scope -> repaint everything
-    dirtyAll=false; dirtyBar=false; dirtyQueue=false; dirtySearch=false; dirtyMain=false; dirtyNav=false;
+  if(dirtyAll || !anyPartial || modal){ // full paint, or an OS/stale paint we can't scope
+    clearDirty();
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
     drawTitleBar(gr);
@@ -1134,11 +1084,19 @@ function drawTitleBar(gr){
   drawCapBtn(gr,GLYPH.cclose,closeX,CAPBW,true);
   HB_CAP={minX:minX,maxX:maxX,closeX:closeX,bw:CAPBW};
 }
+// one sidebar row: cover + name + subtitle. pi<0 draws the library mosaic instead of a playlist cover.
+function drawNavRow(gr,y,h,on,hov,pi,name,sub){
+  if(on||hov) gr.FillRoundRect(R.navLib.x+8,y,R.navLib.w-16,h-4,6,6,on?COL.rowActive:COL.rowHover);
+  var cs=44, cx=R.navLib.x+16, cy=y+(h-cs)/2;
+  if(pi>=0) drawPlCover(gr,cx,cy,cs,4,pi,name); else drawLibCover(gr,cx,cy,cs,4);
+  var tx=cx+cs+12, tw=R.navLib.x+R.navLib.w-16-tx-((hov&&pi>=0)?26:0);   // leave room for the "..." button
+  tL(gr,name,FONT.pl,on?COL.green:COL.text,tx,y+8,tw,20);
+  tL(gr,sub,FONT.plSub,COL.text2,tx,y+30,tw,16);
+}
 function drawNav(gr){
   HB_PL=[];
-  // top card
+  // top card: Home + Search as two wide icon buttons spanning the sidebar
   panelBg(gr,R.navTop,COL.base);
-  // Home + Search as two wide icon buttons spanning the sidebar, side by side
   var m=16, g=12, bh=54, iy=R.navTop.y+Math.round((R.navTop.h-bh)/2);
   var bw=Math.floor((R.navTop.w-2*m-g)/2);
   var hx=R.navTop.x+m, sx2=hx+bw+g;
@@ -1153,18 +1111,14 @@ function drawNav(gr){
   // library card
   panelBg(gr,R.navLib,COL.base);
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
-  var active=plman.ActivePlaylist;
-  var pls=[]; for(var i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
-  // pinned "add playlist" footer at the very bottom (always visible)
-  var footH=72, footTop=R.navLib.y+R.navLib.h-footH;
-  // pinned "All Songs" entry above the list (Spotify's Liked Songs slot) - drawn after the crop, below
-  var pinY=R.navLib.y+48, pinH=58;
+  var active=plman.ActivePlaylist, pls=visiblePlaylists();
+  var footH=72, footTop=R.navLib.y+R.navLib.h-footH;   // pinned "add playlist" footer, always visible
+  var pinY=R.navLib.y+48, pinH=58;                     // pinned "All Songs" row, drawn after the crop below
   // scrollable playlist list (continuous pixel scroll), cropped just above the footer
   var listTop=pinY+pinH+10, rh=58, cropY=footTop-6, viewH=cropY-listTop;
-  var contentH=pls.length*rh, maxPx=Math.max(0,contentH-viewH);   // navScroll is a PIXEL offset
+  var contentH=pls.length*rh, maxPx=Math.max(0,contentH-viewH);
   NAV_MAX=maxPx;
-  if(navScroll>maxPx) navScroll=maxPx; if(navScroll<0) navScroll=0;
-  if(navScrollT>maxPx) navScrollT=maxPx; if(navScrollT<0) navScrollT=0;
+  navScroll=clampPx(navScroll,maxPx); navScrollT=clampPx(navScrollT,maxPx);
   // honour a pending "scroll this playlist into view" request now that the row geometry is known
   if(navRevealPl>=0){
     var rk=-1, ri; for(ri=0;ri<pls.length;ri++){ if(pls[ri]===navRevealPl){ rk=ri; break; } }
@@ -1180,19 +1134,11 @@ function drawNav(gr){
   for(var k=Math.floor(navScroll/rh); k<pls.length; k++){
     var ry=listTop+k*rh-navScroll; if(ry>=cropY) break;
     var i2=pls[k], nm=plman.GetPlaylistName(i2);
-    var isA=(view==='playlist' && i2===active);
     // clamp hover + click targets to the visible band: a row scrolled under the pinned
     // "All Songs" header is painted over, so it must not answer the mouse there either
     var hy0=Math.max(ry,listTop), hy1=Math.min(ry+rh,cropY);
     var rowHov=(hy1>hy0) && hv(R.navLib.x,hy0,R.navLib.x+R.navLib.w,hy1);
-    if(isA) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowActive);
-    else if(rowHov) gr.FillRoundRect(R.navLib.x+8,ry,R.navLib.w-16,rh-4,6,6,COL.rowHover);
-    var cs=44, cx=R.navLib.x+16, cy=ry+(rh-cs)/2;
-    drawPlCover(gr,cx,cy,cs,4,i2,nm);
-    var tx=cx+cs+12;
-    var tw=R.navLib.x+R.navLib.w-16-tx-(rowHov?26:0);
-    tL(gr,nm,FONT.pl,isA?COL.green:COL.text,tx,ry+8,tw,20);
-    tL(gr,plman.PlaylistItemCount(i2)+' songs',FONT.plSub,COL.text2,tx,ry+30,tw,16);
+    drawNavRow(gr,ry,rh,view==='playlist'&&i2===active,rowHov,i2,nm,plman.PlaylistItemCount(i2)+' songs');
     if(rowHov && ry>=listTop) drawDots(gr,R.navLib.x+R.navLib.w-32,ry+(rh-24)/2,i2);
     if(hy1>hy0) HB_PL.push({x0:R.navLib.x,y0:hy0,x1:R.navLib.x+R.navLib.w,y1:hy1,i:i2});
   }
@@ -1201,21 +1147,13 @@ function drawNav(gr){
   gr.FillSolidRect(R.navLib.x,R.navLib.y+M.radius+2,R.navLib.w,listTop-R.navLib.y-M.radius-2,COL.base);
   gr.FillSolidRect(R.navLib.x,cropY,R.navLib.w,R.navLib.y+R.navLib.h-cropY,COL.base);
   tL(gr,'Your Library',FONT.lib,COL.text2,R.navLib.x+18,R.navLib.y+14,R.navLib.w-56,26);
-  var pinOn=(view==='songs'), pinHov=hv(R.navLib.x,pinY,R.navLib.x+R.navLib.w,pinY+pinH);
-  if(pinOn||pinHov) gr.FillRoundRect(R.navLib.x+8,pinY,R.navLib.w-16,pinH-4,6,6,pinOn?COL.rowActive:COL.rowHover);
-  var pcs=44, pcx=R.navLib.x+16, pcy=pinY+(pinH-pcs)/2;
-  drawLibCover(gr,pcx,pcy,pcs,4);
-  var ptx=pcx+pcs+12, ptw=R.navLib.x+R.navLib.w-16-ptx;
-  tL(gr,'All Songs',FONT.pl,pinOn?COL.green:COL.text,ptx,pinY+8,ptw,20);
-  tL(gr,fmtNum(libCount())+' songs',FONT.plSub,COL.text2,ptx,pinY+30,ptw,16);
+  drawNavRow(gr,pinY,pinH,view==='songs',hv(R.navLib.x,pinY,R.navLib.x+R.navLib.w,pinY+pinH),-1,'All Songs',fmtNum(libCount())+' songs');
   HB_ALLSONGS={x0:R.navLib.x,y0:pinY,x1:R.navLib.x+R.navLib.w,y1:pinY+pinH};
   gr.DrawLine(R.navLib.x+16,listTop-6,R.navLib.x+R.navLib.w-16,listTop-6,1,COL.line);
   drawScrollbarN(gr,R.navLib.x+R.navLib.w-9,listTop,viewH,navScroll,maxPx,viewH,contentH,hv(R.navLib.x,R.navLib.y,R.navLib.x+R.navLib.w,R.navLib.y+R.navLib.h)||drag==='scrolln');
   drawAddPlaylist(gr,footTop,footH);
 }
-/* Pinned sidebar footer: click to create a blank playlist, or drop files on it to import.
-   Laid out horizontally (badge + two lines) because the sidebar is far wider than it is
-   tall here -- the old stacked version spent 94px to say the same thing. */
+// pinned sidebar footer: click to create a blank playlist, or drop files on it to import
 function drawAddPlaylist(gr,footTop,footH){
   var bx=R.navLib.x+12, bw=R.navLib.w-24, by=footTop+6, bh=footH-16;
   var hot=hv(bx,by,bx+bw,by+bh), drop=navDropHover;
@@ -1238,7 +1176,7 @@ function drawAddPlaylist(gr,footTop,footH){
 }
 
 function drawMain(gr){
-  HB_CARD=[]; HB_TR=[]; HB_ARTIST=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
+  HB_CARD=[]; HB_TR=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   if(view!=='songs'){ HB_SG=null; SG_HB=[]; }
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
   applyKeyMode();
@@ -1250,39 +1188,39 @@ function drawMain(gr){
   if(view==='songs'){ drawSongs(gr,r); return; }
   drawPlaylist(gr,r);
 }
-/* ---- Playlist view: sort-by pill + asc/desc toggle. Same interaction shape as the All
-   Songs group-by pill (drawGroupPill/drawGroupMenu) - a pill that opens a floating dropdown -
-   plus a second small button that just flips plSortDir. ---- */
-function drawSortPill(gr,x,y,w,h){
-  var open=plSortMenuOpen, hov=hv(x,y,x+w,y+h);
-  gr.FillRoundRect(x,y,w,h,h/2,h/2,(open||hov)?RGB(58,58,58):RGBA(0,0,0,90));
-  tL(gr,'Sort: '+plSortLabel(),FONT.pl,COL.text,x+18,y,w-46,h);
+/* ---- Header dropdowns: a pill that opens a floating menu. Shared by the playlist sort-by and
+   the All Songs group-by; items are [label,value] pairs and the menu is drawn last so it
+   floats over the track list. ---- */
+function drawDropPill(gr,x,y,w,h,label,open){
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,(open||hv(x,y,x+w,y+h))?RGB(58,58,58):RGBA(0,0,0,90));
+  tL(gr,label,FONT.pl,COL.text,x+18,y,w-46,h);
   drawIcon(gr,'chevron',COL.text2,x+w-32,y+(h-20)/2,20,20,18);
-  HB_PLSORT={x0:x,y0:y,x1:x+w,y1:y+h};
+  return {x0:x,y0:y,x1:x+w,y1:y+h};
+}
+function drawDropMenu(gr,anchor,items,cur,minW){
+  var out=[];
+  if(!anchor) return out;
+  var bw=Math.max(minW,anchor.x1-anchor.x0), ih=40, bx=anchor.x1-bw, iy=anchor.y1+6, bh=items.length*ih+10;
+  gr.FillSolidRect(bx+3,iy+4,bw,bh,RGBA(0,0,0,120));
+  gr.FillRoundRect(bx,iy,bw,bh,8,8,RGB(43,43,43));
+  for(var i=0;i<items.length;i++){
+    var ry=iy+5+i*ih;
+    if(hv(bx,ry,bx+bw,ry+ih)) gr.FillRoundRect(bx+4,ry,bw-8,ih,5,5,RGBA(255,255,255,20));
+    tL(gr,items[i][0],FONT.pl,(items[i][1]===cur)?COL.green:COL.text,bx+18,ry,bw-30,ih);
+    out.push({x0:bx,y0:ry,x1:bx+bw,y1:ry+ih,v:items[i][1]});
+  }
+  return out;
 }
 function drawSortDirBtn(gr,x,y,w,h){
-  var hov=hv(x,y,x+w,y+h);
-  gr.FillRoundRect(x,y,w,h,h/2,h/2,hov?RGB(58,58,58):RGBA(0,0,0,90));
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,hv(x,y,x+w,y+h)?RGB(58,58,58):RGBA(0,0,0,90));
   drawIcon(gr,plSortDir==='asc'?'sortAsc':'sortDesc',COL.text,x,y,w,h,18);
   HB_PLSORTDIR={x0:x,y0:y,x1:x+w,y1:y+h};
 }
-function drawSortMenu(gr){          // drawn last so it floats over the track list
-  PL_SORT_HB=[];
-  if(!plSortMenuOpen || !HB_PLSORT) return;
-  var bw=Math.max(180,HB_PLSORT.x1-HB_PLSORT.x0), ih=40, bx=HB_PLSORT.x1-bw, iy=HB_PLSORT.y1+6, bh=PL_SORTS.length*ih+10;
-  gr.FillSolidRect(bx+3,iy+4,bw,bh,RGBA(0,0,0,120));
-  gr.FillRoundRect(bx,iy,bw,bh,8,8,RGB(43,43,43));
-  for(var i=0;i<PL_SORTS.length;i++){
-    var ry=iy+5+i*ih, on=(PL_SORTS[i][1]===plSort);
-    if(hv(bx,ry,bx+bw,ry+ih)) gr.FillRoundRect(bx+4,ry,bw-8,ih,5,5,RGBA(255,255,255,20));
-    tL(gr,PL_SORTS[i][0],FONT.pl,on?COL.green:COL.text,bx+18,ry,bw-30,ih);
-    PL_SORT_HB.push({x0:bx,y0:ry,x1:bx+bw,y1:ry+ih,s:PL_SORTS[i][1]});
-  }
-}
+function drawSortMenu(gr){ PL_SORT_HB=plSortMenuOpen?drawDropMenu(gr,HB_PLSORT,PL_SORTS,plSort,180):[]; }
+function drawGroupMenu(gr){ SG_HB=sgMenuOpen?drawDropMenu(gr,HB_SG,SONGS_GROUPS,songsGroup,216):[]; }
 function drawPlaylist(gr,r){
-  HB_TR=[]; HB_ARTIST=[]; HB_PLADD_FILES=null; HB_PLADD_FOLDER=null;
+  HB_TR=[]; HB_PLADD_FILES=null; HB_PLADD_FOLDER=null;
   var p=activePl();
-  // header gradient wash (square top corners; polish later)
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawPlCover(gr,ax,ay,art,8,p.i,p.name);
@@ -1295,7 +1233,7 @@ function drawPlaylist(gr,r){
   tL(gr,p.name,FONT.title,COL.text,tx,ay+28,tw,84);
   var meta0=getMeta(p.i);
   tL(gr,p.count+' songs'+(meta0.totalSec>0?(' '+CH_DOT+' '+fmtDur(meta0.totalSec)):''),FONT.meta,COL.text2,tx,ay+150,tw,22);
-  drawSortPill(gr,sortX,sortY,sortPillW,38);
+  HB_PLSORT=drawDropPill(gr,sortX,sortY,sortPillW,38,'Sort: '+labelOf(PL_SORTS,plSort,'Artist'),plSortMenuOpen);
   drawSortDirBtn(gr,sortX+sortPillW+sortGap,sortY,sortDirW,38);
 
   // track list
@@ -1306,20 +1244,19 @@ function drawPlaylist(gr,r){
   var titleX=lx+numW+cgap, titleW=(rx-lx-numW-durW-albumW-cgap*3);
   var albumX=titleX+titleW+cgap;
   var rowsTop=listTop+34, rh=M.rowH, cropY=r.y+r.h, viewH=cropY-rowsTop;
-  var contentH=p.count*rh, maxPx=Math.max(0,contentH-viewH);   // firstRow is now a PIXEL offset (continuous scroll)
+  var contentH=p.count*rh, maxPx=Math.max(0,contentH-viewH);   // firstRow is a PIXEL offset
   PL_MAXPX=maxPx;
-  if(firstRow>maxPx) firstRow=maxPx; if(firstRow<0) firstRow=0;
-  if(firstRowT>maxPx) firstRowT=maxPx; if(firstRowT<0) firstRowT=0;
-  var playingLoc=plman.GetPlayingItemLocation ? plman.GetPlayingItemLocation() : null;
+  firstRow=clampPx(firstRow,maxPx); firstRowT=clampPx(firstRowT,maxPx);
+  var loc=playingLoc();
   var items=getItems(p.i), meta=getMeta(p.i), shufHere=npIsShuffleOf(p.name);
-  var order=getPlOrder(p.i);   // display position -> native item index (identity when plSort==='none')
-  warmOnce('pl'+p.i,items);   // pre-load this playlist's covers in the background
+  var order=getPlOrder(p.i);   // display position -> native item index
+  warmOnce('pl'+p.i,items);
   for(var d=Math.floor(firstRow/rh); d<p.count; d++){
     var ry=rowsTop+d*rh-firstRow; if(ry>=cropY) break;
     var j=order[d]; var h=items[j]; if(!h){ continue; }
-    var isPlaying=(playingLoc && playingLoc.IsValid && playingLoc.PlaylistIndex===p.i && playingLoc.PlaylistItemIndex===j)
-                  || (shufHere && sameHandle(h,NP));   // playing from the hidden shuffle copy of this playlist
-    // the row whose context menu is open stays lit (brighter than hover) so the target is unambiguous
+    var isPlaying=(loc && loc.IsValid && loc.PlaylistIndex===p.i && loc.PlaylistItemIndex===j)
+                  || (shufHere && sameHandle(h,NP));   // playing from this playlist's hidden shuffle copy
+    // the row whose context menu is open stays lit (brighter than hover)
     var isMenuRow=!!(ctxMenu && ctxMenu.kind==='track' && ctxMenu.pl===p.i && ctxMenu.item===j);
     var isHover=hv(r.x,ry,r.x+r.w,ry+rh)||isMenuRow;
     if(isHover) gr.FillRoundRect(lx-8,ry,rx-lx+16,rh,4,4,isMenuRow?COL.rowActive:COL.rowHover);
@@ -1338,7 +1275,7 @@ function drawPlaylist(gr,r){
   // crop the partial rows top & bottom, then draw the sticky column header on top
   gr.FillSolidRect(r.x,rowsTop-rh,r.w,rh,COL.base);
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
-  if(p.count===0){ drawPlEmpty(gr,r,rowsTop-rh,cropY); drawSortMenu(gr); return; }   // column headings over a void read as a bug
+  if(p.count===0){ drawPlEmpty(gr,r,rowsTop-rh,cropY); drawSortMenu(gr); return; }   // no column headings over a void
   tL(gr,'#',FONT.head,COL.text2,lx,listTop,numW,20);
   tL(gr,'TITLE',FONT.head,COL.text2,titleX,listTop,titleW,20);
   tL(gr,'ALBUM',FONT.head,COL.text2,albumX,listTop,albumW,20);
@@ -1358,27 +1295,27 @@ function drawPlaylist(gr,r){
   }
   drawSortMenu(gr);
 }
-// zero-track playlist: a centred badge/headline/buttons block, or one big drop cue while
-// files are dragged over it. Degrades from the top down as the panel gets shorter.
+// zero-track playlist: centred badge/headline/buttons, or one big drop cue while files are
+// dragged over it. Degrades from the top down as the panel gets shorter.
 function drawPlEmpty(gr,r,top,bottom){
   var availH=bottom-top, availW=r.w-M.cpad*2;
-  if(availW<220 || availH<110) return;               // too cramped to say anything useful
+  if(availW<220 || availH<110) return;
   var cx=r.x+Math.round(r.w/2);
   if(plDropHover){ drawDropZone(gr,cx,top,availW,availH); return; }
 
-  var badge=availH>=250, sub=availH>=170;            // 216 / 130 / 106 px of content
+  var badge=availH>=250, sub=availH>=170;
   var blockH=(badge?86:0)+40+(sub?24:0)+24+PILL_H;
   var y=top+Math.round((availH-blockH)/2);
   if(badge){
     var bs=64, bx=cx-bs/2;
-    gr.FillEllipse(bx,y,bs,bs,RGBA(255,255,255,16));   // a lift off COL.base, not a hard disc
+    gr.FillEllipse(bx,y,bs,bs,RGBA(255,255,255,16));
     drawIcon(gr,'add',COL.text2,bx,y,bs,bs,26);
     y+=86;
   }
   tC(gr,"Let's add some songs",FONT.sect2,COL.text,r.x,y,r.w,40); y+=40;
   if(sub){ tC(gr,'Drag files here, or browse your computer.',FONT.meta,COL.text2,r.x,y,r.w,24); y+=24; }
   y+=24;
-  // the pair hugs its labels and centres as a group, so the widths stay balanced at any UISCALE
+  // the pair hugs its labels and centres as a group, so widths stay balanced at any UISCALE
   var w1=pillW(gr,'Browse files'), w2=pillW(gr,'Browse folder'), gap=12;
   var px=cx-Math.round((w1+w2+gap)/2);
   HB_PLADD_FILES=drawPill(gr,px,y,w1,'Browse files',true);
@@ -1394,9 +1331,8 @@ function drawDropZone(gr,cx,top,availW,availH){
   drawIcon(gr,'add',COL.green,bx,iy,bw,34,34);
   tC(gr,'Drop to add to this playlist',FONT.sect,COL.green,bx,iy+44,bw,26);
 }
-/* Spotify-style pill buttons: primary is a solid white capsule with black text,
-   secondary is outlined. Both nudge outward on hover (the component has no transforms,
-   so "scale" is a 2px grow), inside a hitbox padded enough that the grow can't flicker. */
+/* Pill buttons: primary is a solid white capsule with black text, secondary is outlined. Both
+   nudge outward on hover (no transforms here, so "scale" is a 2px grow) inside a padded hitbox. */
 var PILL_H=42;
 function pillW(gr,label){ return Math.max(140,gr.CalcTextWidth(label,FONT.pl)+48); }
 function drawPill(gr,x,y,w,label,primary){
@@ -1438,16 +1374,16 @@ function drawHome(gr,r){
   var cardH=cardW+56;
   // ---- geometry ----
   var shelfTitleY=r.y+18, shelfY=shelfTitleY+42;
-  var pls=[]; for(i=0;i<plman.PlaylistCount;i++){ if(!isHiddenPl(plman.GetPlaylistName(i))) pls.push(i); }
+  var pls=visiblePlaylists();
   var scardW=(pls.length>cols)?Math.floor((w-cols*gap)/(cols+0.4)):cardW, scardH=scardW+56;
   var artTitleY=shelfY+scardH+(pls.length>cols?26:16), gy=artTitleY+42;   // artist grid top
   var cropY=r.y+r.h, rowStep=cardH+8, viewH=cropY-gy;
   var arts=getArtistList();
-  if(!warmed['home']){ warmed['home']=1; var wa=[],wi; for(wi=0;wi<arts.length;wi++) wa.push(artistCover(arts[wi].name,arts[wi].handle)); for(wi=0;wi<pls.length;wi++) wa.push(plCovers(pls[wi]).single); warmArt(wa); }   // warm artist avatars + shelf covers
+  // warm artist avatars + shelf covers
+  if(!warmed['home']){ warmed['home']=1; var wa=[],wi; for(wi=0;wi<arts.length;wi++) wa.push(artistCover(arts[wi].name,arts[wi].handle)); for(wi=0;wi<pls.length;wi++) wa.push(plCovers(pls[wi]).single); warmArt(wa); }
   var totalRows=Math.max(1,Math.ceil(arts.length/cols)), contentH=totalRows*rowStep, maxPx=Math.max(0,contentH-viewH);
-  HOME_MAXROW=maxPx;   // pixels now (continuous artist grid)
-  if(homeScroll>maxPx) homeScroll=maxPx; if(homeScroll<0) homeScroll=0;
-  if(homeScrollT>maxPx) homeScrollT=maxPx; if(homeScrollT<0) homeScrollT=0;
+  HOME_MAXROW=maxPx;
+  homeScroll=clampPx(homeScroll,maxPx); homeScrollT=clampPx(homeScrollT,maxPx);
 
   // ---- 1) artist grid (continuous; the top partial row overflows up, cleared below) ----
   for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
@@ -1456,13 +1392,13 @@ function drawHome(gr,r){
     if(ay+cardH<=gy) continue;
     drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
   }
-  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel              // crop below the grid
+  gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
 
   // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
-  gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);                 // clear the whole band above the grid viewport
+  gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,shelfTitleY,w,28);
   HOME_PLMAX=Math.max(0,pls.length-cols);
-  if(plScroll>HOME_PLMAX) plScroll=HOME_PLMAX; if(plScroll<0) plScroll=0;
+  plScroll=clampPx(plScroll,HOME_PLMAX);
   for(i=plScroll;i<pls.length;i++){
     var cx=x0+(i-plScroll)*(scardW+gap); if(cx>=rightEdge) break;
     drawPlaylistCard(gr,cx,shelfY,scardW,pls[i]);
@@ -1477,7 +1413,7 @@ function drawHome(gr,r){
   drawScrollbar(gr,x0+w+8,gy,viewH,homeScroll,maxPx,viewH,contentH,hv(x0,gy,x0+w+16,cropY)||drag==='scroll');
 }
 function drawArtist(gr,r){
-  HB_TR=[]; HB_ARTIST=[];
+  HB_TR=[];
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
   var cover=artistAlbums.length?artistAlbums[0].handle:null;   // optimistic (art loads async)
   gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
@@ -1511,26 +1447,6 @@ function drawArtist(gr,r){
   }
 }
 /* ---- All Songs: header + group-by pill + grouped/flat track list ---- */
-function drawGroupPill(gr,x,y,w,h){
-  var open=sgMenuOpen, hov=hv(x,y,x+w,y+h);
-  gr.FillRoundRect(x,y,w,h,h/2,h/2,(open||hov)?RGB(58,58,58):RGBA(0,0,0,90));
-  tL(gr,'Group: '+sgLabel(),FONT.pl,COL.text,x+18,y,w-46,h);
-  drawIcon(gr,'chevron',COL.text2,x+w-32,y+(h-20)/2,20,20,18);
-  HB_SG={x0:x,y0:y,x1:x+w,y1:y+h};
-}
-function drawGroupMenu(gr){          // drawn last so it floats over the track list
-  SG_HB=[];
-  if(!sgMenuOpen || !HB_SG) return;
-  var bw=Math.max(216,HB_SG.x1-HB_SG.x0), ih=40, bx=HB_SG.x1-bw, iy=HB_SG.y1+6, bh=SONGS_GROUPS.length*ih+10;
-  gr.FillSolidRect(bx+3,iy+4,bw,bh,RGBA(0,0,0,120));
-  gr.FillRoundRect(bx,iy,bw,bh,8,8,RGB(43,43,43));
-  for(var i=0;i<SONGS_GROUPS.length;i++){
-    var ry=iy+5+i*ih, on=(SONGS_GROUPS[i][1]===songsGroup);
-    if(hv(bx,ry,bx+bw,ry+ih)) gr.FillRoundRect(bx+4,ry,bw-8,ih,5,5,RGBA(255,255,255,20));
-    tL(gr,SONGS_GROUPS[i][0],FONT.pl,on?COL.green:COL.text,bx+18,ry,bw-30,ih);
-    SG_HB.push({x0:bx,y0:ry,x1:bx+bw,y1:ry+ih,g:SONGS_GROUPS[i][1]});
-  }
-}
 function drawSongs(gr,r){
   HB_TR=[]; HB_CARD=[]; HB_SG=null;
   if(!songsRows) buildSongsRows();
@@ -1540,12 +1456,12 @@ function drawSongs(gr,r){
   var rx=r.x+r.w-M.cpad, lx=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawLibCover(gr,lx,ay,art,8);
   // header text stops short of the pill's column so the two can never collide on a narrow panel
-  var pillW=232, pillX=Math.max(lx+art+24,rx-pillW);
-  var tx=lx+art+24, tw=Math.max(120,pillX-12-tx);
+  var gpW=232, gpX=Math.max(lx+art+24,rx-gpW);
+  var tx=lx+art+24, tw=Math.max(120,gpX-12-tx);
   tL(gr,'LIBRARY',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,'All Songs',FONT.title,COL.text,tx,ay+28,tw,84);
   tL(gr,fmtNum(songsTracks.length)+' songs'+(songsTotalSec>0?(' '+CH_DOT+' '+fmtDur(songsTotalSec)):''),FONT.meta,COL.text2,tx,ay+150,tw,22);
-  drawGroupPill(gr,pillX,ay+142,pillW,38);
+  HB_SG=drawDropPill(gr,gpX,ay+142,gpW,38,'Group: '+labelOf(SONGS_GROUPS,songsGroup,'No grouping'),sgMenuOpen);
 
   if(!songsRows.length){
     tC(gr,'Nothing in your library yet',FONT.sect,COL.text2,r.x,r.y+SHEAD+40,r.w,24);
@@ -1553,18 +1469,13 @@ function drawSongs(gr,r){
     return;
   }
 
-  /* ---- columns ----
-     Flat mode mirrors the playlist view (cover + two-line title/artist + ALBUM column).
-     Grouped mode strips all of that: the header directly above already shows the artwork,
-     the album and the artist, so repeating them per row is noise. Rows become single-line
-     and indent under their header, one step per nesting level, so containment reads at a
-     glance. The secondary column follows suit: ALBUM when flat, ARTIST when grouped by
-     album (compilations differ per track), nothing when grouped by artist. */
+  /* ---- columns: flat mode mirrors the playlist view (cover + two-line title/artist + ALBUM).
+     Grouped mode drops all of that -- the header above already shows artwork, album and artist --
+     so rows go single-line and indent one step per nesting level. Secondary column follows:
+     ALBUM when flat, ARTIST when grouped by album, nothing when grouped by artist. */
   var flat=(g==='none'), tind=flat?0:(g==='both'?SG_IND*2:SG_IND);
   var showAlbum=flat, showArtist=(g==='album');
-  // index column: wide enough for the largest number it can hold (whole library when flat,
-  // per-group otherwise) so digits never clip against the title
-  var numW=flat?46:36, durW=64, cgap=16;
+  var numW=flat?46:36, durW=64, cgap=16;   // index column fits the largest number it can hold
   var numX=lx+tind, titleX=numX+numW+cgap;
   var colW=showAlbum?Math.round((rx-titleX-durW-cgap*2)*0.34):(showArtist?Math.round((rx-titleX-durW-cgap*2)*0.28):0);
   var colX=rx-durW-cgap-colW;
@@ -1574,13 +1485,11 @@ function drawSongs(gr,r){
   var rowsTop=listTop+34, cropY=r.y+r.h, viewH=cropY-rowsTop;
   var contentH=songsContentH, maxPx=Math.max(0,contentH-viewH);
   SONGS_MAXPX=maxPx;
-  if(songsScroll>maxPx) songsScroll=maxPx; if(songsScroll<0) songsScroll=0;
-  if(songsScrollT>maxPx) songsScrollT=maxPx; if(songsScrollT<0) songsScrollT=0;
+  songsScroll=clampPx(songsScroll,maxPx); songsScrollT=clampPx(songsScrollT,maxPx);
   var j0=songsFirstAt(songsScroll);
-  // Nested mode: a vertical rail runs from each artist banner down past all of its albums, so
-  // you can always see which artist the block you're looking at belongs to. Drawn before the
-  // rows so hover fills paint over it. Starts from the group owning the first visible row -
-  // the banner itself is often scrolled away.
+  // Nested mode: a rail runs from each artist banner past all of its albums, so the owning
+  // artist stays visible. Drawn before the rows so hover fills paint over it, and started from
+  // the group owning the first visible row -- the banner itself is often scrolled away.
   if(g==='both' && j0<songsRows.length){
     var q0=(songsRows[j0].g1i!==undefined)?songsRows[j0].g1i:j0;
     for(var q=q0;q<songsRows.length;q++){
@@ -1615,10 +1524,8 @@ function drawSongs(gr,r){
       tR(gr,t.len,FONT.rowCell,COL.text2,rx-durW,ry,durW,gh);
       HB_TR.push({x0:lx-8,y0:vy0,x1:rx+8,y1:vy1,songs:true,ti:row.ti});
     } else {
-      /* Group header. Every kind is the same block on the same rhythm - GAP above (where the
-         divider rule sits), artwork, PADB below - differing only in indent, artwork size and,
-         for the artist banner, a slab + eyebrow. All offsets derive from the metrics above so
-         the tiers stay on one grid. */
+      /* Group header: every kind is the same block on the same rhythm (GAP, artwork, PADB),
+         differing only in indent, artwork size and -- for the artist banner -- a slab + eyebrow. */
       var nest=(row.k==='g2'), isArt=(row.kind==='artist'), banner=(isArt && g==='both');
       var gap=nest?SG_GAP2:SG_GAP1, acs=nest?SG_ART2:SG_ART1;
       var blockTop=ry+gap, blockH=gh-gap-(nest?SG_PADB2:SG_PADB1);
@@ -1631,7 +1538,7 @@ function drawSongs(gr,r){
       else if(hHov) gr.FillRoundRect(lx-8,blockTop-4,rx-lx+16,blockH+8,6,6,COL.rowHover);
       if(isArt) drawCircle(gr,hx,hy,acs,artistCover(row.label,row.handle),row.label);
       else drawRounded(gr,hx,hy,acs,5,row.handle,row.seed);
-      // text block centred against the artwork, and running to the same right edge as the rows
+      // text block centred against the artwork, running to the same right edge as the rows
       var htx=hx+acs+SG_TGAP, htw=rx-htx;
       var eyeH=banner?16:0, nameH=nest?22:26, subH=16;
       var ty0=Math.round(hy+acs/2-(eyeH+nameH+subH)/2);
@@ -1640,7 +1547,7 @@ function drawSongs(gr,r){
       if(banner) tL(gr,'ARTIST',FONT.eyebrow,COL.text3,htx,ty0,htw,eyeH);
       tL(gr,row.label,nest?FONT.sect:FONT.sect2,COL.text,htx,ty0+eyeH,htw,nameH);
       tL(gr,sub,FONT.plSub,COL.text2,htx,ty0+eyeH+nameH,htw,subH);
-      // artist headers are a shortcut to the full artist page (same target kind as an artist card)
+      // artist headers are a shortcut to the full artist page
       if(isArt && hb1>hb0) HB_CARD.push({x0:lx-8,y0:hb0,x1:rx+8,y1:hb1,kind:'artist',id:row.label});
     }
   }
@@ -1656,9 +1563,8 @@ function drawSongs(gr,r){
   drawScrollbar(gr,rx+8,rowsTop,viewH,songsScroll,maxPx,viewH,contentH,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
   drawGroupMenu(gr);
 }
-// The search field, factored out so the blinking caret can repaint just this
-// strip (dirtySearch flag) instead of the whole view twice a second.
-var SBOX_H=44, SBOX_TOP=26;   // box height + offset below R.main.y (shared by box + results layout)
+// factored out so the blinking caret repaints just this strip (dirtySearch), not the whole view
+var SBOX_H=44, SBOX_TOP=26;   // box height + offset below R.main.y
 function searchBoxRect(){ var r=R.main, boxW=Math.min(520,r.w-M.cpad*2); return {x:r.x+M.cpad-2,y:r.y+SBOX_TOP-4,w:boxW+8,h:SBOX_H+8}; }
 function drawSearchBox(gr,r){
   var x0=r.x+M.cpad, boxH=SBOX_H, boxY=r.y+SBOX_TOP, boxW=Math.min(520,r.w-M.cpad*2);
@@ -1676,10 +1582,9 @@ function drawSearchBox(gr,r){
   }
   if(caretOn) gr.FillSolidRect(caretX,caretY,2,caretH,empty?COL.text2:COL.text);
 }
-/* Artists + Songs are one continuously-scrolled document (same model as the home artist grid):
-   pixel scroll, eased via scrollTick, hover-revealed scrollbar. The search box stays pinned --
-   content is drawn first and allowed to overflow upward, then the band above the viewport is
-   painted over and the box redrawn on top, exactly how drawHome masks its grid. */
+/* Artists + Songs are one continuously-scrolled document (same model as the home artist grid).
+   The search box stays pinned: content is drawn first and allowed to overflow upward, then the
+   band above the viewport is painted over and the box redrawn on top. */
 function drawSearch(gr,r){
   HB_CARD=[]; HB_TR=[];
   computeSearch();
@@ -1704,8 +1609,7 @@ function drawSearch(gr,r){
   var contentH=artsH+(searchTrks.length?(38+searchTrks.length*rh):0);
   var maxPx=Math.max(0,contentH-viewH);
   SEARCH_MAXPX=maxPx;
-  if(searchScroll>maxPx) searchScroll=maxPx; if(searchScroll<0) searchScroll=0;
-  if(searchScrollT>maxPx) searchScrollT=maxPx; if(searchScrollT<0) searchScrollT=0;
+  searchScroll=clampPx(searchScroll,maxPx); searchScrollT=clampPx(searchScrollT,maxPx);
   var cy=top-searchScroll;
   // ---- artists ----
   if(searchArts.length){
@@ -1749,6 +1653,13 @@ function qRow(gr,r,x,qy,rh){
   if(hv(x0,y0,x1,y1)) gr.FillRoundRect(x0,y0,x1-x0,y1-y0,6,6,COL.rowHover);
   return {x0:x0,y0:y0,x1:x1,y1:y1};
 }
+// cover + title + artist, the layout every queue entry shares
+function qEntry(gr,r,x,y,cs,dy,h,seed,key,title,artist,tcol){
+  drawCover(gr,x,y,cs,4,h,seed,key);
+  var tx=x+cs+12, tw=r.w-36-cs-12;
+  tL(gr,title,FONT.qName,tcol,tx,y+dy,tw,18);
+  tL(gr,artist,FONT.qArtist,COL.text2,tx,y+dy+20,tw,16);
+}
 function drawQueue(gr){
   HB_TABS=[]; HB_Q=[];
   var r=R.queue; panelBg(gr,r,COL.base);
@@ -1762,33 +1673,20 @@ function drawQueue(gr){
 
   if(!qOn){
     loadLyrics();
-    if(!lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length){
+    if(noLyrics()){
       tC(gr,'No lyrics found',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2)-28,r.w,24);
       tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
       return;
     }
-    var viewTop=r.y+64, viewBot=r.y+r.h-16, maxW=r.w-28, li;
-    var L=lyLayout(gr,maxW), subLh=L.subLh, s;
-    if(lyrics.synced){
-      drawRollingLyrics(gr,r.x+14,viewTop,maxW,viewBot,FONT.lyric,COL.green,'c');
-    } else {
-      stopLyAnim();
-      var yy=viewTop+6;
-      for(li=0;li<lyrics.lines.length;li++){
-        var p2=L.subs[li];
-        for(s=0;s<p2.length && yy+subLh<=viewBot; s++){ tC(gr,p2[s],FONT.lyric,COL.text2,r.x+14,yy,maxW,subLh); yy+=subLh; }
-        yy+=Math.round(subLh*0.45);
-        if(yy>=viewBot) break;
-      }
-    }
+    var viewTop=r.y+64, viewBot=r.y+r.h-16, maxW=r.w-28;
+    if(lyrics.synced) drawRollingLyrics(gr,r.x+14,viewTop,maxW,viewBot,FONT.lyric,COL.green,'c');
+    else drawStaticLyrics(gr,r.x+14,maxW,viewTop+6,viewBot,FONT.lyric,0.45);
     return;
   }
 
-  var np=fb.IsPlaying||fb.IsPaused, qy=r.y+70;
+  var qy=r.y+70;
   tL(gr,'Now playing',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
-  drawCover(gr,x,qy,48,4,NP,'np');
-  tL(gr,npTitleStr||'Nothing playing',FONT.qName,np?COL.green:COL.text,x+60,qy+6,r.w-36-60,18);
-  tL(gr,npArtistStr,FONT.qArtist,COL.text2,x+60,qy+26,r.w-36-60,16);
+  qEntry(gr,r,x,qy,48,6,NP,'np',undefined,npTitleStr||'Nothing playing',npArtistStr,(fb.IsPlaying||fb.IsPaused)?COL.green:COL.text);
   qy+=70;
 
   var rh=56, bottom=r.y+r.h-8, shown=0, qi;
@@ -1800,9 +1698,7 @@ function drawQueue(gr){
       if(qy+rh>bottom) break;
       var qh=mq[qi]; if(!qh) continue;
       var qhb=qRow(gr,r,x,qy,rh); qhb.q=qi; HB_Q.push(qhb);
-      drawCover(gr,x,qy,44,4,qh,'mq'+qi);
-      tL(gr,TF.title.EvalWithMetadb(qh),FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
-      tL(gr,TF.artist.EvalWithMetadb(qh),FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+      qEntry(gr,r,x,qy,44,5,qh,'mq'+qi,undefined,TF.title.EvalWithMetadb(qh),TF.artist.EvalWithMetadb(qh),COL.text);
       qy+=rh; shown++;
     }
     qy+=10;
@@ -1811,14 +1707,12 @@ function drawQueue(gr){
   if(pbRepeat===2){
     if(NP && qy+rh+30<bottom){
       tL(gr,'Repeating this song',FONT.sect,COL.text,x,qy,r.w-36,24); qy+=36;
-      drawCover(gr,x,qy,44,4,NP,'np');
-      tL(gr,npTitleStr,FONT.qName,COL.green,x+56,qy+5,r.w-36-56,18);
-      tL(gr,npArtistStr,FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+      qEntry(gr,r,x,qy,44,5,NP,'np',undefined,npTitleStr,npArtistStr,COL.green);
     }
     return;
   }
   // "Next up" from the playing playlist
-  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+  var loc=playingLoc();
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
   var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
   var rawnm=(pli>=0)?plman.GetPlaylistName(pli):'';
@@ -1831,27 +1725,29 @@ function drawQueue(gr){
         if(qy+rh>bottom) break;
         var h=items[k]; if(!h) continue;
         var nhb=qRow(gr,r,x,qy,rh); nhb.pl=pli; nhb.item=k; HB_Q.push(nhb);
-        drawCover(gr,x,qy,44,4,h,qmeta.album[k]||String(k),qmeta.artkey[k]);
-        tL(gr,qmeta.title[k],FONT.qName,COL.text,x+56,qy+5,r.w-36-56,18);
-        tL(gr,qmeta.artist[k],FONT.qArtist,COL.text2,x+56,qy+25,r.w-36-56,16);
+        qEntry(gr,r,x,qy,44,5,h,qmeta.album[k]||String(k),qmeta.artkey[k],qmeta.title[k],qmeta.artist[k],COL.text);
         qy+=rh; shown++;
       }
       if(shown===0) tL(gr,'End of playlist',FONT.qArtist,COL.text3,x,qy,r.w-36,18);
     }
   }
 }
-TF.npAlbumSeed=function(){ return TF.album.Eval()||'np'; };
-
 function ctrlBtn(gr,name,cx,cyc,active,act,rad,isz){
   rad=rad||18; isz=isz||22;
   drawIcon(gr,name,active?COL.green:(hv(cx-rad,cyc-rad,cx+rad,cyc+rad)?COL.text:COL.text2),cx-rad,cyc-rad,rad*2,rad*2,isz);
   HB_CTRL.push({x0:cx-rad,y0:cyc-rad,x1:cx+rad,y1:cyc+rad,act:act});
 }
+// seek / volume track: filled progress on a dim rail, with a generously padded hitbox
+function drawTrackBar(gr,x,y,w,th,trackCol,pos){
+  gr.FillSolidRect(x,y,w,th,trackCol);
+  if(pos>0) gr.FillSolidRect(x,y,Math.max(1,Math.round(w*pos)),th,COL.text);
+  return {x0:x,y0:y-10,x1:x+w,y1:y+10+th,x:x,w:w};
+}
 function drawBar(gr){
   HB_CTRL=[];
   var by=R.barY;
   gr.FillSolidRect(0,by,W,M.barH,COL.black);
-  var np=fb.IsPlaying||fb.IsPaused, playing=np&&fb.IsPlaying&&!fb.IsPaused;
+  var playing=fb.IsPlaying&&!fb.IsPaused;
   // left: cover + title/artist
   var cs=64, cx=16, cy=by+(M.barH-cs)/2;
   drawCover(gr,cx,cy,cs,5,NP,'np');
@@ -1861,32 +1757,25 @@ function drawBar(gr){
   // center: transport row + seekbar
   var cxC=Math.round(W/2);
   var pcy=by+34, pb=hv(cxC-27,by+7,cxC+27,by+61)?52:48, pbx=cxC-pb/2, pby=pcy-pb/2;
-  var shufOn=pbShuffle, repMode=pbRepeat;
-  ctrlBtn(gr,'shuffle',cxC-108,pcy,shufOn,'shuffle',22,26);
+  ctrlBtn(gr,'shuffle',cxC-108,pcy,pbShuffle,'shuffle',22,26);
   ctrlBtn(gr,'prev',cxC-58,pcy,false,'prev',22,26);
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
   drawIcon(gr,playing?'pause':'play',COL.black,pbx,pby,pb,pb,Math.round(pb*0.5));
   HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
   ctrlBtn(gr,'next',cxC+58,pcy,false,'next',22,26);
-  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+108,pcy,repMode>0,'repeat',22,26);
+  ctrlBtn(gr,pbRepeat===2?'repeat1':'repeat',cxC+108,pcy,pbRepeat>0,'repeat',22,26);
   var sbW=Math.min(Math.round(W*0.36),560), sbX=cxC-sbW/2, sbY=by+74;
   var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
-  gr.FillSolidRect(sbX,sbY,sbW,5,COL.seekbg);
-  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),5,COL.text);
+  HB_SEEK=drawTrackBar(gr,sbX,sbY,sbW,5,COL.seekbg,pos);
   tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-54,sbY-7,46,17);
   tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+10,sbY-7,46,17);
-  HB_SEEK={x0:sbX,y0:sbY-10,x1:sbX+sbW,y1:sbY+15,x:sbX,w:sbW};
   // right: volume + fullscreen
-  var gearC=by+M.barH/2;
-  var fsx=W-46;   // enter-fullscreen button, far right
+  var gearC=by+M.barH/2, fsx=W-46;
   drawIcon(gr,'expand',hv(fsx-8,gearC-16,fsx+30,gearC+16)?COL.text:COL.text2,fsx,gearC-13,26,26,22);
   HB_CTRL.push({x0:fsx-8,y0:gearC-16,x1:fsx+30,y1:gearC+16,act:'fullscreen'});
   var volW=104, volX=fsx-24-volW, volY=gearC-2;
   drawIcon(gr,'volume',COL.text2,volX-32,gearC-13,26,26,22);
-  var vp=clamp01(vol2pos(fb.Volume));
-  gr.FillSolidRect(volX,volY,volW,5,COL.seekbg);
-  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),5,COL.text);
-  HB_VOL={x0:volX,y0:volY-10,x1:volX+volW,y1:volY+15,x:volX,w:volW};
+  HB_VOL=drawTrackBar(gr,volX,volY,volW,5,COL.seekbg,clamp01(vol2pos(fb.Volume)));
 }
 
 /* ------------------------- fullscreen "chill" mode ------------------------- */
@@ -1898,7 +1787,7 @@ function doFsAct(act){
   else if(act==='lyrics') setFsView(fsView==='lyrics'?'default':'lyrics');
   else if(act==='viz') setFsView(fsView==='viz'?'default':'viz');
 }
-// ---- audio spectrum visualizer (real PCM via fb.GetAudioChunk -> FFT bars) ----
+// ---- audio spectrum visualizer: real PCM via fb.GetAudioChunk -> FFT bars ----
 var VIZ_N=56;
 function vizUpdate(){
   if(!fsMode || fsView!=='viz'){ stopViz(); return; }
@@ -1912,7 +1801,6 @@ function vizUpdate(){
     }
   }catch(e){ ok=false; }
   if(!ok){ for(i=0;i<VIZ_N;i++) vizBars[i]=(vizBars[i]||0)*0.82; repaintAll(); return; }
-  // simple DFT-ish magnitude via naive FFT (N=512, power of 2)
   fftMag(re,im,N);
   var bars=[], nb=VIZ_N, half=N/2;
   for(i=0;i<nb;i++){
@@ -1929,15 +1817,13 @@ function fftMag(re,im,n){
 }
 function startViz(){ if(!vizTimer){ vizTimer=window.SetInterval(vizUpdate,45); } }
 function stopViz(){ if(vizTimer){ window.ClearInterval(vizTimer); vizTimer=null; } }
-// plain dark background (no album art)
-function fsBg(gr){ gr.FillSolidRect(0,0,W,H,COL.base); }
 function fsIcon(gr,name,col,x,y,sz,act){
   drawIcon(gr,name,hv(x-8,y-8,x+sz+8,y+sz+8)?COL.text:col,x,y,sz,sz,sz);
   HB_FS.push({x0:x-8,y0:y-8,x1:x+sz+8,y1:y+sz+8,act:act});
 }
-// name of the real playlist currently driving playback, or null (e.g. playing from library/search/artist page)
+// name of the real playlist driving playback, or null (e.g. playing from library/search/artist)
 function npPlaylistSrc(){
-  var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null, pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
+  var loc=playingLoc(), pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
   if(pli<0) return null;
   var rnm=plman.GetPlaylistName(pli);
   if(rnm===SHUF) return shufSrcName||null;
@@ -1948,15 +1834,15 @@ function fsMiniNP(gr){   // small cover + title + artist, top-left (lyrics/viz v
   var s=64, src=npPlaylistSrc();
   if(src){
     var lbl='PLAYING FROM PLAYLIST  ';
-    tL(gr,lbl,FONT.fsSrc,COL.text3,64,20,W/2,20);   // dim: fixed caption
+    tL(gr,lbl,FONT.fsSrc,COL.text3,64,20,W/2,20);
     var lw=gr.CalcTextWidth(lbl,FONT.fsSrc);
-    tL(gr,src,FONT.fsSrcName,COL.text,64+lw,20,Math.max(0,W/2-lw),20);   // bold + brightest: actual playlist name
+    tL(gr,src,FONT.fsSrcName,COL.text,64+lw,20,Math.max(0,W/2-lw),20);   // bold: the playlist name
   }
   drawRounded(gr,64,78,s,6,NP,'np');
   tL(gr,npTitleStr||'Nothing playing',FONT.sect2,COL.text,64+s+18,84,W/2,26);
   tL(gr,npArtistStr,FONT.qName,COL.text2,64+s+18,116,W/2,20);
 }
-// cover + title + artist stacked and centred in the space between the header and the transport bar
+// cover + title + artist, centred between the header and the transport bar
 function drawFsDefault(gr,bot){
   var top=120, avail=bot-top, txtH=130, gap=30;
   var sz=Math.max(140,Math.min(420,avail-txtH-gap));
@@ -1969,11 +1855,11 @@ function drawFsDefault(gr,bot){
 function drawFsLyrics(gr,bot){
   fsMiniNP(gr);
   loadLyrics();   // reload for the current track (fast: cached by track; reloads on track change)
-  if(!lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length){ tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,Math.round(H*0.45),W,40); return; }
+  if(noLyrics()){ tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,Math.round(H*0.45),W,40); return; }
   if(lyrics.synced) drawRollingLyrics(gr,140,165,W-280,bot,FONT.fsLyric,COL.green,'c');
-  else { stopLyAnim(); var L=lyLayout(gr,W-280,FONT.fsLyric), yy=180, s; for(var li=0;li<lyrics.lines.length;li++){ var p=L.subs[li]; for(s=0;s<p.length&&yy+L.subLh<=bot;s++){ tC(gr,p[s],FONT.fsLyric,COL.text2,140,yy,W-280,L.subLh); yy+=L.subLh; } yy+=Math.round(L.subLh*0.4); if(yy>=bot) break; } }
+  else drawStaticLyrics(gr,140,W-280,180,bot,FONT.fsLyric,0.4);
 }
-// mirrored pill bars in the theme's Spotify green -- deeper green when quiet, brighter at peaks
+// mirrored pill bars: deeper green when quiet, brighter at peaks
 function drawFsViz(gr,bot){
   fsMiniNP(gr);
   var top=200, cy=Math.round((top+bot)/2), n=VIZ_N, i;
@@ -1989,34 +1875,29 @@ function drawFsBar(gr){
   var playing=fb.IsPlaying&&!fb.IsPaused, by=H-150;
   var sbX=72, sbW=W-144, sbY=by+30;
   var len=fb.PlaybackLength, pos=(drag==='seek')?dragFrac:(len>0?fb.PlaybackTime/len:0);
-  gr.FillSolidRect(sbX,sbY,sbW,4,RGBA(255,255,255,55));
-  if(pos>0) gr.FillSolidRect(sbX,sbY,Math.max(1,Math.round(sbW*pos)),4,COL.text);
+  var rail=RGBA(255,255,255,55);
+  HB_SEEK=drawTrackBar(gr,sbX,sbY,sbW,4,rail,pos);
   tR(gr,fmtTime((drag==='seek')?len*dragFrac:fb.PlaybackTime),FONT.time,COL.text2,sbX-54,sbY-6,46,16);
   tL(gr,fmtTime(len),FONT.time,COL.text2,sbX+sbW+8,sbY-6,46,16);
-  HB_SEEK={x0:sbX,y0:sbY-10,x1:sbX+sbW,y1:sbY+14,x:sbX,w:sbW};
   var cxC=Math.round(W/2), cy=by+86, pb=56, pbx=cxC-pb/2, pby=cy-pb/2;
-  var shufOn=pbShuffle, repMode=pbRepeat;
-  ctrlBtn(gr,'shuffle',cxC-150,cy,shufOn,'shuffle');
+  ctrlBtn(gr,'shuffle',cxC-150,cy,pbShuffle,'shuffle');
   ctrlBtn(gr,'prev',cxC-84,cy,false,'prev');
   gr.FillEllipse(pbx,pby,pb,pb,COL.text);
   drawIcon(gr,playing?'pause':'play',COL.black,pbx,pby,pb,pb,Math.round(pb*0.5));
   HB_CTRL.push({x0:pbx,y0:pby,x1:pbx+pb,y1:pby+pb,act:'play'});
   ctrlBtn(gr,'next',cxC+84,cy,false,'next');
-  ctrlBtn(gr,repMode===2?'repeat1':'repeat',cxC+150,cy,repMode>0,'repeat');
+  ctrlBtn(gr,pbRepeat===2?'repeat1':'repeat',cxC+150,cy,pbRepeat>0,'repeat');
   fsIcon(gr,'equalizer',fsView==='viz'?COL.green:COL.text2,72,cy-13,26,'viz');
   fsIcon(gr,'mic',fsView==='lyrics'?COL.green:COL.text2,114,cy-13,26,'lyrics');
   var rx=W-72;
   fsIcon(gr,'compress',COL.text2,rx-26,cy-13,26,'exit');
   var volW=120, volX=rx-26-46-volW, volY=cy-2;
   drawIcon(gr,'volume',COL.text2,volX-32,cy-12,24,24,20);
-  var vp=clamp01(vol2pos(fb.Volume));
-  gr.FillSolidRect(volX,volY,volW,4,RGBA(255,255,255,55));
-  gr.FillSolidRect(volX,volY,Math.max(1,Math.round(volW*vp)),4,COL.text);
-  HB_VOL={x0:volX,y0:volY-10,x1:volX+volW,y1:volY+14,x:volX,w:volW};
+  HB_VOL=drawTrackBar(gr,volX,volY,volW,4,rail,clamp01(vol2pos(fb.Volume)));
 }
 function drawFullscreen(gr){
   HB_CTRL=[]; HB_SEEK=null; HB_VOL=null; HB_FS=[]; SB=null; SBH=null; SBN=null;
-  fsBg(gr);
+  gr.FillSolidRect(0,0,W,H,COL.base);
   var bot=H-172;
   if(fsView==='lyrics') drawFsLyrics(gr,bot);
   else if(fsView==='viz') drawFsViz(gr,bot);
@@ -2095,20 +1976,22 @@ function doCtrl(act){
   repaintAll();
 }
 function on_mouse_lbtn_up(x,y){
+  var t;
   // ---- modal overlays first ----
   if(dupPrompt){
-    if(DUP_HB && inRect(x,y,DUP_HB.skip)){ dupSkip(); return; }
-    dupKeep(); return;                       // "Add anyway" / click outside: leave the playlist as-is
+    if(DUP_HB && inRect(x,y,DUP_HB.skip)) dupSkip(); else dupKeep();   // "Add anyway"/outside: leave as-is
+    return;
   }
   if(confirmDel){
     if(CONF_HB && inRect(x,y,CONF_HB.del)){ doDeletePlaylist(confirmDel.pl); return; }
     confirmDel=null; repaintAll(); return;   // cancel / click outside
   }
   if(ctxMenu){
-    var ci; for(ci=0;ci<CTX_HB.length;ci++){ if(inRect(x,y,CTX_HB[ci])){
-      var act=CTX_HB[ci].act, pl=ctxMenu.pl, nm=ctxMenu.name, itm=ctxMenu.item;
+    t=hit(CTX_HB,x,y);
+    if(t){
+      var act=t.act, pl=ctxMenu.pl, nm=ctxMenu.name, itm=ctxMenu.item;
       if(act==='trkremove'){ ctxMenu=null; removeTrackFromPl(pl,itm); return; }
-      // navigate to the target first, so the tracks land somewhere the user can actually see
+      // navigate to the target first, so the tracks land somewhere the user can see
       if(act==='addfiles'||act==='addfolder'){
         ctxMenu=null; firstRow=firstRowT=0; view='playlist'; repaintAll();
         if(act==='addfiles') addFilesToPl(pl); else addFolderToPl(pl);
@@ -2116,7 +1999,7 @@ function on_mouse_lbtn_up(x,y){
       else if(act==='rename'){ startRename(pl); }
       else { confirmDel={pl:pl,name:nm}; ctxMenu=null; repaintAll(); }
       return;
-    } }
+    }
     ctxMenu=null; repaintAll(); return;      // click outside menu -> close
   }
   if(renameEdit){
@@ -2127,32 +2010,29 @@ function on_mouse_lbtn_up(x,y){
     }
     cancelRename(); return;                        // click on backdrop: dismiss
   }
-  var dd; for(dd=0;dd<HB_DOTS.length;dd++){ if(inRect(x,y,HB_DOTS[dd])){ openPlaylistMenu(HB_DOTS[dd].pl,HB_DOTS[dd].mx,HB_DOTS[dd].my); return; } }
+  if((t=hit(HB_DOTS,x,y))){ openPlaylistMenu(t.pl,t.mx,t.my); return; }
   if(drag==='seek'){ if(fb.PlaybackLength>0) fb.PlaybackTime=fb.PlaybackLength*dragFrac; drag=null; repaintAll(); return; }
   if(drag==='vol'){ drag=null; return; }
-  if(drag==='scroll'){ drag=null; repaintAll(); return; }
-  if(drag==='scrollh'){ drag=null; repaintAll(); return; }
-  if(drag==='scrolln'){ drag=null; repaintAll(); return; }
-  // group-by dropdown (All Songs) - open menu is modal-ish: any click either picks or closes it
+  if(drag==='scroll'||drag==='scrollh'||drag==='scrolln'){ drag=null; repaintAll(); return; }
+  // an open dropdown is modal-ish: any click either picks an item or closes it
   if(sgMenuOpen){
-    var sg; for(sg=0;sg<SG_HB.length;sg++){ if(inRect(x,y,SG_HB[sg])){ setSongsGroup(SG_HB[sg].g); return; } }
+    if((t=hit(SG_HB,x,y))){ setSongsGroup(t.v); return; }
     sgMenuOpen=false; repaintAll(); return;
   }
   if(HB_SG && inRect(x,y,HB_SG)){ sgMenuOpen=true; repaintAll(); return; }
-  // sort-by dropdown + asc/desc toggle (Playlist view)
   if(plSortMenuOpen){
-    var ps; for(ps=0;ps<PL_SORT_HB.length;ps++){ if(inRect(x,y,PL_SORT_HB[ps])){ setPlSort(PL_SORT_HB[ps].s); return; } }
+    if((t=hit(PL_SORT_HB,x,y))){ setPlSort(t.v); return; }
     plSortMenuOpen=false; repaintAll(); return;
   }
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)){ plSortMenuOpen=true; repaintAll(); return; }
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)){ togglePlSortDir(); return; }
   if(fsMode){
-    var f2; for(f2=0;f2<HB_FS.length;f2++){ if(inRect(x,y,HB_FS[f2])){ doFsAct(HB_FS[f2].act); return; } }
-    var c3; for(c3=0;c3<HB_CTRL.length;c3++){ if(inRect(x,y,HB_CTRL[c3])){ doCtrl(HB_CTRL[c3].act); return; } }
+    if((t=hit(HB_FS,x,y))){ doFsAct(t.act); return; }
+    if((t=hit(HB_CTRL,x,y))){ doCtrl(t.act); return; }
     return;
   }
   if(y<TBH){
-    var mm; for(mm=0;mm<HB_MENU.length;mm++){ if(inRect(x,y,HB_MENU[mm])){ openMenu(HB_MENU[mm].root,HB_MENU[mm].mx,TBH); return; } }
+    if((t=hit(HB_MENU,x,y))){ openMenu(t.root,t.mx,TBH); return; }
     if(HB_CAP){
       if(x>=HB_CAP.closeX){ fb.Exit(); return; }
       if(x>=HB_CAP.maxX){ if(UIWizard){ try{ UIWizard.ToggleMaximize(); }catch(e){} } repaintAll(); return; }
@@ -2160,30 +2040,43 @@ function on_mouse_lbtn_up(x,y){
     }
     return;
   }
-  var i;
-  for(i=0;i<HB_TABS.length;i++){ if(inRect(x,y,HB_TABS[i])){ rightTab=HB_TABS[i].tab; if(rightTab==='lyrics'){ loadLyrics(); lySnap=true; } else stopLyAnim(); repaintAll(); return; } }
-  for(i=0;i<HB_CTRL.length;i++){ if(inRect(x,y,HB_CTRL[i])){ doCtrl(HB_CTRL[i].act); return; } }
+  if((t=hit(HB_TABS,x,y))){ rightTab=t.tab; if(rightTab==='lyrics'){ loadLyrics(); lySnap=true; } else stopLyAnim(); repaintAll(); return; }
+  if((t=hit(HB_CTRL,x,y))){ doCtrl(t.act); return; }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; repaintAll(); return; }
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)){ view='search'; repaintAll(); return; }
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)){ if(view!=='songs'){ view='songs'; songsScroll=songsScrollT=0; } repaintAll(); return; }
   if(HB_ADDPL && inRect(x,y,HB_ADDPL)){ var np=createNewPlaylist(); plman.ActivePlaylist=np; revealPlaylist(np); firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
   if(HB_PLADD_FILES && inRect(x,y,HB_PLADD_FILES)){ addFilesToPl(plman.ActivePlaylist); return; }
   if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)){ addFolderToPl(plman.ActivePlaylist); return; }
-  for(i=0;i<HB_CARD.length;i++){ if(inRect(x,y,HB_CARD[i])){ var c=HB_CARD[i]; if(c.kind==='pl'){ plman.ActivePlaylist=c.id; firstRow=firstRowT=0; view='playlist'; } else { loadArtist(c.id); view='artist'; } repaintAll(); return; } }
-  for(i=0;i<HB_PL.length;i++){ if(inRect(x,y,HB_PL[i])){ plman.ActivePlaylist=HB_PL[i].i; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; } }
-  for(i=0;i<HB_Q.length;i++){ if(inRect(x,y,HB_Q[i])){ var q=HB_Q[i]; if(q.q!==undefined) playQueueItem(q.q); else playQueueNext(q.pl,q.item); repaintAll(); return; } }
-  for(i=0;i<HB_TR.length;i++){ if(inRect(x,y,HB_TR[i])){ var tr=HB_TR[i]; if(tr.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,tr.idx); } else if(tr.songs) playSongsRow(tr.ti); else if(tr.lib) playArtistTrack(tr.block,tr.idx); else playPlaylistItem(tr.pl,tr.item); repaintAll(); return; } }
+  if((t=hit(HB_CARD,x,y))){
+    if(t.kind==='pl'){ plman.ActivePlaylist=t.id; firstRow=firstRowT=0; view='playlist'; }
+    else { loadArtist(t.id); view='artist'; }
+    repaintAll(); return;
+  }
+  if((t=hit(HB_PL,x,y))){ plman.ActivePlaylist=t.i; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
+  if((t=hit(HB_Q,x,y))){ if(t.q!==undefined) playQueueItem(t.q); else playQueueNext(t.pl,t.item); repaintAll(); return; }
+  if((t=hit(HB_TR,x,y))){
+    if(t.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,t.idx); }
+    else if(t.songs) playSongsRow(t.ti);
+    else if(t.lib) playArtistTrack(t.block,t.idx);
+    else playPlaylistItem(t.pl,t.item);
+    repaintAll(); return;
+  }
 }
 function hoverSig(x,y){
   var i;
   if(dupPrompt){ if(DUP_HB){ if(inRect(x,y,DUP_HB.skip)) return 'dps'; if(inRect(x,y,DUP_HB.keep)) return 'dpk'; } return 'dp'; }
   if(renameEdit){ if(RENAME_HB){ if(inRect(x,y,RENAME_HB.save)) return 'rns'; if(inRect(x,y,RENAME_HB.cancel)) return 'rnc'; } return 'rn'; }
   if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
-  if(ctxMenu){ for(i=0;i<CTX_HB.length;i++) if(inRect(x,y,CTX_HB[i])) return 'cx'+i; return 'cx'; }
-  if(sgMenuOpen){ for(i=0;i<SG_HB.length;i++) if(inRect(x,y,SG_HB[i])) return 'sg'+i; return 'sg'; }
-  if(plSortMenuOpen){ for(i=0;i<PL_SORT_HB.length;i++) if(inRect(x,y,PL_SORT_HB[i])) return 'ps'+i; return 'ps'; }
-  for(i=0;i<HB_DOTS.length;i++) if(inRect(x,y,HB_DOTS[i])) return 'd'+i;
-  if(y<TBH){ for(var mj=0;mj<HB_MENU.length;mj++) if(inRect(x,y,HB_MENU[mj])) return 'mnu'+mj; if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0); return ''; }
+  if(ctxMenu){ i=hitIdx(CTX_HB,x,y); return (i<0)?'cx':('cx'+i); }
+  if(sgMenuOpen){ i=hitIdx(SG_HB,x,y); return (i<0)?'sg':('sg'+i); }
+  if(plSortMenuOpen){ i=hitIdx(PL_SORT_HB,x,y); return (i<0)?'ps':('ps'+i); }
+  if((i=hitIdx(HB_DOTS,x,y))>=0) return 'd'+i;
+  if(y<TBH){
+    if((i=hitIdx(HB_MENU,x,y))>=0) return 'mnu'+i;
+    if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0);
+    return '';
+  }
   if(SBH && inRect(x,y,SBH)) return 'sbh';
   if(SBN && inRect(x,y,SBN)) return 'sbn';
   if(HB_ADDPL && inRect(x,y,HB_ADDPL)) return 'addpl';
@@ -2194,14 +2087,14 @@ function hoverSig(x,y){
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)) return 'psb';
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)) return 'psd';
   if(SB && inRect(x,y,SB)) return 'sb';
-  for(i=0;i<HB_CTRL.length;i++) if(inRect(x,y,HB_CTRL[i])) return 'c'+i;
-  for(i=0;i<HB_TABS.length;i++) if(inRect(x,y,HB_TABS[i])) return 't'+i;
+  if((i=hitIdx(HB_CTRL,x,y))>=0) return 'c'+i;
+  if((i=hitIdx(HB_TABS,x,y))>=0) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)) return 's';
-  for(i=0;i<HB_CARD.length;i++) if(inRect(x,y,HB_CARD[i])) return 'k'+i;
-  for(i=0;i<HB_PL.length;i++) if(inRect(x,y,HB_PL[i])) return 'p'+HB_PL[i].i;
-  for(i=0;i<HB_Q.length;i++) if(inRect(x,y,HB_Q[i])) return 'q'+i;
-  for(i=0;i<HB_TR.length;i++) if(inRect(x,y,HB_TR[i])) return 'r'+i;
+  if((i=hitIdx(HB_CARD,x,y))>=0) return 'k'+i;
+  if((i=hitIdx(HB_PL,x,y))>=0) return 'p'+HB_PL[i].i;
+  if((i=hitIdx(HB_Q,x,y))>=0) return 'q'+i;
+  if((i=hitIdx(HB_TR,x,y))>=0) return 'r'+i;
   return '';
 }
 function on_mouse_move(x,y){
@@ -2243,24 +2136,22 @@ function on_char(code){
 function on_mouse_wheel(step){
   if(fsMode){ fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return; }
   if(R.navLib && mx>=R.navLib.x && mx<R.navLib.x+R.navLib.w && my>=R.navLib.y && my<R.navLib.y+R.navLib.h){
-    navScrollT-=step*WHEEL_PX; if(navScrollT<0)navScrollT=0; if(navScrollT>NAV_MAX)navScrollT=NAV_MAX; startScrollAnim(); return;   // smooth
+    navScrollT=clampPx(navScrollT-step*WHEEL_PX,NAV_MAX); startScrollAnim(); return;
   }
   if(mx<R.main.x || mx>=R.main.x+R.main.w) return;
   if(view==='home'){
-    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll-=step; if(plScroll<0)plScroll=0; if(plScroll>HOME_PLMAX)plScroll=HOME_PLMAX; repaintAll(); }   // shelf: card-stepped
-    else { homeScrollT-=step*Math.round(WHEEL_PX*1.7); if(homeScrollT<0)homeScrollT=0; if(homeScrollT>HOME_MAXROW)homeScrollT=HOME_MAXROW; startScrollAnim(); }   // artists: smooth (bigger step: tall cards)
+    if(my>=HOME_SHELF_Y0 && my<HOME_SHELF_Y1){ plScroll=clampPx(plScroll-step,HOME_PLMAX); repaintAll(); }   // shelf: card-stepped
+    else { homeScrollT=clampPx(homeScrollT-step*Math.round(WHEEL_PX*1.7),HOME_MAXROW); startScrollAnim(); }   // artists: bigger step, tall cards
     return;
   }
-  else if(view==='songs'){ songsScrollT-=step*WHEEL_PX; if(songsScrollT<0)songsScrollT=0; if(songsScrollT>SONGS_MAXPX)songsScrollT=SONGS_MAXPX; startScrollAnim(); return; }   // smooth, like the playlist list
-  else if(view==='search'){ searchScrollT-=step*WHEEL_PX; if(searchScrollT<0)searchScrollT=0; if(searchScrollT>SEARCH_MAXPX)searchScrollT=SEARCH_MAXPX; startScrollAnim(); return; }   // smooth, like home
-  else if(view==='artist'){ artScroll-=step; if(artScroll<0)artScroll=0; if(artScroll>ART_MAXBLOCK)artScroll=ART_MAXBLOCK; repaintAll(); return; }
-  firstRowT-=step*WHEEL_PX; if(firstRowT<0)firstRowT=0; if(firstRowT>PL_MAXPX)firstRowT=PL_MAXPX; startScrollAnim();   // playlist songs: smooth
+  else if(view==='songs'){ songsScrollT=clampPx(songsScrollT-step*WHEEL_PX,SONGS_MAXPX); startScrollAnim(); return; }
+  else if(view==='search'){ searchScrollT=clampPx(searchScrollT-step*WHEEL_PX,SEARCH_MAXPX); startScrollAnim(); return; }
+  else if(view==='artist'){ artScroll=clampPx(artScroll-step,ART_MAXBLOCK); repaintAll(); return; }
+  firstRowT=clampPx(firstRowT-step*WHEEL_PX,PL_MAXPX); startScrollAnim();
 }
-/* ---- drag & drop external files ------------------------------------------------
-   Two targets: the library section (-> creates a new playlist) and the body of the
-   playlist view (-> appends to the playlist you're looking at). Everywhere else denies.
-   Note we never see the dropped paths: DropTargetAction exposes Playlist/Base/ToSelect
-   write-only, so we just name a destination and the component performs the insert. */
+/* ---- drag & drop external files: two targets, the library section (-> new playlist) and the
+   playlist view body (-> appends to it); everywhere else denies. We never see the dropped paths
+   (DropTargetAction is write-only), so we name a destination and the component does the insert. */
 function overLib(x,y){ return !!R.navLib && x>=R.navLib.x && x<R.navLib.x+R.navLib.w && y>=R.navLib.y && y<R.navLib.y+R.navLib.h; }
 // body of the playlist view -> index of the playlist to append to, or -1 if that's not a valid target
 function plDropTarget(x,y){
@@ -2308,16 +2199,17 @@ function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
 }
-function on_library_items_added(){ invalidateLibrary(); repaintAll(); }
-function on_library_items_removed(){ invalidateLibrary(); repaintAll(); }
-function on_library_items_changed(){ invalidateLibrary(); repaintAll(); }
+function libChanged(){ invalidateLibrary(); repaintAll(); }
+function on_library_items_added(){ libChanged(); }
+function on_library_items_removed(){ libChanged(); }
+function on_library_items_changed(){ libChanged(); }
 
 /* ------------------------- playback callbacks ------------------------- */
 function on_playback_new_track(){
   updateNP();
-  // shuffle + loop-all: when playback wraps from the last shuffled track back to the first, reshuffle the rest
+  // shuffle + loop-all: on wrapping from the last shuffled track back to the first, reshuffle the rest
   if(pbShuffle){
-    var loc=plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null;
+    var loc=playingLoc();
     var sp=playlistOfName(SHUF), idx=(loc&&loc.IsValid&&loc.PlaylistIndex===sp)?loc.PlaylistItemIndex:-1;
     if(sp>=0 && idx>=0){
       var cnt=plman.PlaylistItemCount(sp);
@@ -2327,9 +2219,10 @@ function on_playback_new_track(){
   } else lastShufIdx=-1;
   repaintAll();
 }
-function on_playback_dynamic_info_track(){ updateNP(); repaintAll(); }
-function on_playback_stop(){ updateNP(); repaintAll(); }
-function on_playback_pause(){ updateNP(); repaintAll(); }
+function npChanged(){ updateNP(); repaintAll(); }
+function on_playback_dynamic_info_track(){ npChanged(); }
+function on_playback_stop(){ npChanged(); }
+function on_playback_pause(){ npChanged(); }
 function on_playback_time(){
   repaintBar();
   var lyricsShown=(rightTab==='lyrics')||(fsMode&&fsView==='lyrics');
@@ -2351,3 +2244,4 @@ layout();
 updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
 console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
+
