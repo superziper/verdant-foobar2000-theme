@@ -244,14 +244,53 @@ function capPut(store,order,cap,key,val){
   }
 }
 var artOrder=[], thumbOrder=[], cArtOrder=[];
-// artCache holds decoded bitmaps (a 500px cover is ~1MB ARGB), so the cap is a real memory
-// ceiling: ~110-300MB here depending on cover sizes. Thumbs and masked art are far smaller per
-// entry (44px row thumb ~8KB, 155px card cover ~96KB), so their caps can be looser.
-// ART_CAP must exceed the artist count for the home grid's reveal gate to mean anything -- if
-// artwork is evicted while the gate is still waiting, it reveals "complete" with placeholders
-// anyway. 400 leaves headroom over a ~270-artist library plus playlist covers; the ceiling is
-// ~145-400MB depending on cover sizes.
-var ART_CAP=400, THUMB_CAP=400, CART_CAP=400;
+/* Adaptive cache sizing. window.JsMemoryStats reports usage against the component's hard limit --
+   and crossing that limit fails EVERY panel with OOM, so it is the real budget, not free system
+   RAM. Measurement confirmed the counter includes native bitmaps and not just the JS heap, which
+   is what makes this worth doing at all.
+   Caps grow while comfortably under the limit and shrink when approaching it; capPut and
+   evictArtCards do the actual freeing on their next insert. */
+/* Absolute byte targets, not a fraction of the component limit: the limit here is 2.5GB, but
+   measurement showed performance degrading well before that, so the real constraint is machine
+   memory pressure rather than the OOM ceiling. Comfort 500MB, hard back-off at 900MB. Still
+   clamped against the component limit in case it is smaller than these figures elsewhere. */
+var MEM_COMFORT=420*1048576, MEM_CEILING=900*1048576, MEM_STEP=1.25, memTimer=null;
+var CAP_MIN={art:200,cart:300,thumb:400,card:200};
+/* Growth headroom differs per cache by design. artCache is capped tightly: it is the source for
+   derivatives and is never blitted, so measurement showed growing it from 300 to 535 entries cost
+   ~250MB and changed nothing (misses were already zero). The derivative caches are what actually
+   get drawn and cost far less per entry, so they may grow freely. */
+var CAP_MAX={art:350,cart:1200,thumb:2500,card:600};
+function capClamp(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
+function memTick(){
+  var s=null; try{ s=window.JsMemoryStats; }catch(e){}
+  if(!s || !s.TotalMemoryLimit) return;
+  var used=Math.max(s.MemoryUsage||0,s.TotalMemoryUsage||0);
+  var lim=s.TotalMemoryLimit;
+  var hi=Math.min(MEM_CEILING,lim*0.6), lo=Math.min(MEM_COMFORT,hi*0.6);
+  var d=(used<lo)?MEM_STEP:((used>hi)?(1/MEM_STEP):0);
+  if(!d) return;
+  ART_CAP      =capClamp(Math.round(ART_CAP*d),      CAP_MIN.art,  CAP_MAX.art);
+  CART_CAP     =capClamp(Math.round(CART_CAP*d),     CAP_MIN.cart, CAP_MAX.cart);
+  THUMB_CAP    =capClamp(Math.round(THUMB_CAP*d),    CAP_MIN.thumb,CAP_MAX.thumb);
+  ART_CARD_CAP =capClamp(Math.round(ART_CARD_CAP*d), CAP_MIN.card, CAP_MAX.card);
+  GATE_MAX=ART_CAP-60;   // a reveal gate can only wait on what the cache can still hold
+  if(PERF) console.log('mem '+(used/1048576).toFixed(0)+'/'+(lim/1048576).toFixed(0)
+    +'MB  caps art '+ART_CAP+' cart '+CART_CAP+' thumb '+THUMB_CAP+' card '+ART_CARD_CAP);
+}
+function startMemWatch(){ if(!memTimer) memTimer=window.SetInterval(memTick,4000); }
+function stopMemWatch(){ if(memTimer){ window.ClearInterval(memTimer); memTimer=null; } }
+/* Cache caps, adjusted at runtime by memTick() against the component's real memory limit. These
+   are starting points: artCache holds decoded bitmaps (~0.6MB each at ART_MAXPX), masked art is
+   ~96KB, row thumbs ~8KB -- so the same entry count means wildly different memory per cache, which
+   is why they differ. ART_CAP must also exceed the artist count for the shelf/grid reveal gates to
+   mean anything: artwork evicted mid-wait would reveal "complete" with placeholders anyway. */
+/* artCache is only the SOURCE for derivatives -- never blitted directly -- yet at ~465KB an entry
+   it dominates the footprint, so it stays small. artCardCache is what actually removes re-renders
+   from the grid and costs ~168KB an entry, so it gets enough slots to hold a full artist list.
+   Measured: pushing the total to ~570MB made even panelBg (a plain fill, cache-independent) twice
+   as slow -- memory pressure costs more than the cache misses it removes. */
+var ART_CAP=300, THUMB_CAP=1200, CART_CAP=600;
 function artDone(key,img){
   capPut(artCache,artOrder,ART_CAP,key,img||null);
   delete artPending[key];
@@ -1511,6 +1550,25 @@ function pt(name,fn){
   if(!PERF){ fn(); return; }
   var t=Date.now(); fn(); perfP[name]=(perfP[name]||0)+(Date.now()-t);
 }
+/* window.JsMemoryStats reports the JS engine's usage against the component's hard limit -- crossing
+   that limit fails ALL panels with OOM, so it is the real budget for cache sizing, not system RAM.
+   Open question this logs in order to answer: our caches are native GdiBitmaps, and if the counter
+   only tracks the JS heap it will not move as artwork accumulates, in which case sizing against it
+   is meaningless and we must account for bitmap bytes ourselves.
+   `est` is our own arithmetic for comparison: entries x pixels x 4. If mem tracks bitmaps the two
+   should move together. */
+function memLine(){
+  var s=null; try{ s=window.JsMemoryStats; }catch(e){}
+  var mb=function(v){ return (v/1048576).toFixed(1); };
+  var est=(artCardN*179*235*4)+(artOrder.length*440*440*4*0.6)+(cArtOrder.length*155*155*4)+(thumbOrder.length*44*44*4);
+  // panel size matters: pbg is a flat fill, so its cost is pure pixel count -- a wider window
+  // inflates it, and every other section, without anything having actually got slower
+  var out='  win '+W+'x'+H+' main '+(R.main?R.main.w+'x'+R.main.h:'?')
+    +'  est '+mb(est)+'MB  art '+artOrder.length+' cart '+cArtOrder.length+' thumb '+thumbOrder.length;
+  if(s) out+='  js '+mb(s.MemoryUsage)+'/'+mb(s.TotalMemoryLimit)+'MB (all '+mb(s.TotalMemoryUsage)+')';
+  else out+='  js n/a';
+  return out;
+}
 function perfBreak(n){
   var k, out=[];
   for(k in perfP) if(perfP[k]>0) out.push(k+' '+(perfP[k]/n).toFixed(1));
@@ -1531,7 +1589,8 @@ function on_paint(gr){
   if(++perfN>=30){
     perfTot+=perfN;
     var line='frame '+perfTot+'  avg '+(perfSum/perfN).toFixed(1)+'ms  max '+perfMax+'ms  view='+view+perfBreak(perfN)
-      +'  card hit '+perfHit+' miss '+perfMiss+'  artists '+(artistList?artistList.length:0)+'  cached '+artCardN;
+      +'  card hit '+perfHit+' miss '+perfMiss+'  artists '+(artistList?artistList.length:0)+'  cached '+artCardN
+      +memLine();
     perfHit=0; perfMiss=0;
     console.log(line);
     // WriteTextFile has no append mode (3rd arg is write_bom), so keep the log in memory and
@@ -1901,7 +1960,9 @@ function paintArtistCard(gr,x,y,w,a,hov){
    rounded rect, a masked circular cover and two centred labels, all redrawn every paint. Cache
    them like playlist cards. Unlike playlists a library can have thousands of artists, so the
    cache is capped and dropped wholesale when it grows past the cap. */
-var artCardCache={}, artCardN=0, ART_CARD_CAP=120, artTick=0;
+// 120 could not hold a 269-artist library: measurement showed ~400 misses per 30 frames while
+// scrolling home, i.e. a dozen cards re-rendered every frame instead of blitted
+var artCardCache={}, artCardN=0, ART_CARD_CAP=400, artTick=0;
 /* Least-recently-used eviction. Wiping the whole cache on overflow meant the very next frame had
    to re-render every visible card at once -- the worst possible moment, since overflow happens
    while scrolling. Dropping the oldest half instead keeps what is on screen and costs only the
@@ -2828,7 +2889,7 @@ function on_drag_drop(action,x,y,mask){
   navDropHover=false; plDropHover=false; repaintAll();
 }
 function on_script_unload(){
-  stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); stopShimAnim();
+  stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); stopShimAnim(); stopMemWatch();
   if(dupWatch && dupWatch.timer) window.ClearTimeout(dupWatch.timer);
 }
 function invalidateLibrary(){
@@ -2882,5 +2943,6 @@ function on_item_focus_change(){ repaintAll(); }
 layout();
 updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
+startMemWatch();   // caches grow into the component's spare memory and back off as it fills
 console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
 
