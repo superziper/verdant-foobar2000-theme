@@ -206,7 +206,18 @@ function artWarmRepaint(){
    the script thread, so hundreds landing together serialise into one long stall. On-demand
    requests (a card being drawn now) jump the queue ahead of bulk warm-up work, so what's on
    screen fills in first instead of behind several hundred off-screen covers. */
-var artQueue=[], artInFlight=0, ART_MAX_INFLIGHT=8;
+/* ART_DOWNSCALE is the quality mode for the on-arrival downscale. It was 2 (HighQuality), which on
+   a 3000px cover costs tens of milliseconds -- and that runs inside the promise callback, which
+   cannot yield. Across a few hundred artists it is seconds of solid thread time with nothing able
+   to paint: the "drawn, then frozen" freeze. Mode 1 is several times cheaper and the result is
+   downscaled again to card size before it is ever shown, so the difference is not visible.
+   Fewer in flight also means fewer callbacks landing back to back. */
+var artQueue=[], artInFlight=0, ART_MAX_INFLIGHT=3, ART_DOWNSCALE=1, ART_MAXPX=500;
+// while a section is holding back its reveal there is nothing interactive inside it, so it is
+// worth fetching harder; normal browsing drops back to ART_MAX_INFLIGHT
+var ART_GATE_INFLIGHT=6, artsGating=false;
+// gated sections fetch harder, because nothing in them is interactive until they reveal
+function artInflightCap(){ return artsGating?ART_GATE_INFLIGHT:ART_MAX_INFLIGHT; }
 function requestArt(h,key,lowPri){
   if(!h || artCache.hasOwnProperty(key) || artPending[key]) return;
   artPending[key]=true;
@@ -214,7 +225,7 @@ function requestArt(h,key,lowPri){
   pumpArt();
 }
 function pumpArt(){
-  while(artInFlight<ART_MAX_INFLIGHT && artQueue.length){
+  while(artInFlight<artInflightCap() && artQueue.length){
     var it=artQueue.shift();
     artInFlight++;
     startArt(it[0],it[1]);
@@ -236,7 +247,11 @@ var artOrder=[], thumbOrder=[], cArtOrder=[];
 // artCache holds decoded bitmaps (a 500px cover is ~1MB ARGB), so the cap is a real memory
 // ceiling: ~110-300MB here depending on cover sizes. Thumbs and masked art are far smaller per
 // entry (44px row thumb ~8KB, 155px card cover ~96KB), so their caps can be looser.
-var ART_CAP=300, THUMB_CAP=400, CART_CAP=400;
+// ART_CAP must exceed the artist count for the home grid's reveal gate to mean anything -- if
+// artwork is evicted while the gate is still waiting, it reveals "complete" with placeholders
+// anyway. 400 leaves headroom over a ~270-artist library plus playlist covers; the ceiling is
+// ~145-400MB depending on cover sizes.
+var ART_CAP=400, THUMB_CAP=400, CART_CAP=400;
 function artDone(key,img){
   capPut(artCache,artOrder,ART_CAP,key,img||null);
   delete artPending[key];
@@ -246,7 +261,11 @@ function startArt(h,key){
   try{
     utils.GetAlbumArtAsyncV2(0,h,0,false,false,false).then(function(res){
       var img=res?res.image:null;
-      if(img && img.Width>500){ try{ img=img.Resize(500,Math.round(img.Height*500/img.Width),2); }catch(e){} }
+      if(img && img.Width>ART_MAXPX){
+        var t0=PERF?Date.now():0;
+        try{ img=img.Resize(ART_MAXPX,Math.round(img.Height*ART_MAXPX/img.Width),ART_DOWNSCALE); }catch(e){}
+        if(PERF){ perfP['artResize']=(perfP['artResize']||0)+(Date.now()-t0); }
+      }
       artDone(key,img); artWarmRepaint();
     }, function(){ artDone(key,null); });
   }catch(e){ artDone(key,null); }
@@ -375,6 +394,18 @@ function getSongsIdx(){
   }
   songsIdx=out; return out;
 }
+/* Build steps for the All Songs view. The nine title-formatting passes are the bulk of the work
+   and each is atomic, so they run one per tick rather than back to back; libTF memoises them, so
+   getSongsIdx then finds everything cached and only has to assemble. */
+var SONGS_FIELDS=['title','artist','artistName','album','len','lensec','albkey','trackno','year'];
+function songsSteps(){
+  var steps=[], i;
+  for(i=0;i<SONGS_FIELDS.length;i++) steps.push((function(f){ return function(){ libTF(f); }; })(SONGS_FIELDS[i]));
+  steps.push(function(){ getSongsIdx(); });      // assembly only -- every field is cached by now
+  steps.push(function(){ buildSongsRows(); });   // sort (atomic) + row layout
+  return steps;
+}
+function songsReady(){ return !!songsRows; }
 function cmpStr(a,b){ a=String(a).toLowerCase(); b=String(b).toLowerCase(); return a<b?-1:(a>b?1:0); }
 function cmpK(a,b){ return a<b?-1:(a>b?1:0); }   // operands already lowercased once at index time
 function cmpTrk(a,b){ return (a.tn-b.tn)||cmpStr(a.title,b.title); }   // within an album: disc order, then title
@@ -732,10 +763,225 @@ function scrollTick(){
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; nm=true; } else navScroll=navScrollT;
   if(mm) repaintMain();
   if(nm) repaintNav();
-  if(!mm && !nm) stopScrollAnim();
+  // one more frame after the scroll settles, so shimSettle can restart the sweep it suppressed
+  if(!mm && !nm){ stopScrollAnim(); if(shimCount>0) repaintMain(); }
 }
 function startScrollAnim(){ if(!scrollTimer) scrollTimer=window.SetInterval(scrollTick,16); }
 function stopScrollAnim(){ if(scrollTimer){ window.ClearInterval(scrollTimer); scrollTimer=null; } }
+
+/* ---- deferred section builds -------------------------------------------------------------
+   The panel has one thread, so a section that builds its data inline blocks the very paint that
+   should be showing a loading state -- and blocks input with it. Instead a section reports "not
+   ready", paints a skeleton, and its build runs as a sequence of short steps on timer ticks, so
+   the message loop keeps processing clicks and scrolls in between.
+   The units we cannot split are a single EvalWithMetadbs and Array.sort; everything else is
+   sliced around them. ready() reads the real data, so any invalidate*() re-arms this for free. */
+/* Steps run in time-budgeted slices, not one per tick. A timer on Windows lands ~15ms out, so
+   one-step-per-tick turned an eleven-step build that used to take 20ms into ~165ms -- slower than
+   the thing it was smoothing, and long enough to flash a skeleton. Instead a slice keeps running
+   steps until it has used its budget, and the FIRST slice runs synchronously: anything that fits
+   in a frame finishes inline and never shows a loading state at all. */
+/* SKEL_TEST forces the loading path so the skeletons can be inspected: one step per slice, a slow
+   tick between them, and no delay before drawing. Set it back to false when done -- with it off,
+   builds that fit in a frame finish inline and no loading state is ever shown. */
+var SKEL_TEST=false;
+var jobs={}, JOB_BUDGET=SKEL_TEST?0:8;
+function jobRun(key,steps){
+  if(jobs[key]) return;
+  jobs[key]={i:0,steps:steps,t:Date.now()};
+  jobSlice(key,false);
+}
+function jobSlice(key,fromTimer){
+  var j=jobs[key]; if(!j) return;
+  var t0=Date.now();
+  while(j.i<j.steps.length){
+    var again=false;
+    try{ again=(j.steps[j.i]()===true); }catch(e){}
+    if(!again) j.i++;
+    if((Date.now()-t0)>=JOB_BUDGET) break;
+  }
+  if(j.i>=j.steps.length){
+    delete jobs[key];
+    // only repaint if we actually yielded; a build that finished inline is already being drawn
+    if(fromTimer){ repaintMain(); if(R.queue) repaintQueue(); }
+    return;
+  }
+  window.SetTimeout(function(){ jobSlice(key,true); },SKEL_TEST?60:1);
+}
+function ensureBuilt(key,ready,steps){
+  if(ready()){ if(jobs[key]) delete jobs[key]; return true; }
+  jobRun(key,steps());
+  return ready();   // fast builds complete inside the synchronous first slice
+}
+// A build that finishes quickly must not flash a skeleton, so nothing is drawn for the first
+// 150ms -- on the fast path that is a frame or two and invisible.
+var SKEL_DELAY=SKEL_TEST?0:150;
+function skelVisible(key){ var j=jobs[key]; return !!j && (Date.now()-j.t)>SKEL_DELAY; }
+
+/* ---- skeleton + shimmer ---- */
+var shimTimer=null, shimCount=0;
+function shimSettle(){
+  artsGating=(gateWaiting>0);   // fetch harder while a section is holding its reveal back
+  /* 16fps: a slow sweep reads fine at this rate, and every frame costs a full main repaint at a
+     moment when artwork decoding is already competing for the same thread. Suppressed entirely
+     while a scroll animation runs -- that already repaints at 60fps, and the sweep is driven off
+     the clock, so it keeps moving for free instead of scheduling redundant frames. */
+  var want=(shimCount>0 && !scrollTimer);
+  if(want && !shimTimer) shimTimer=window.SetInterval(function(){ repaintMain(); },60);
+  else if(!want && shimTimer){ window.ClearInterval(shimTimer); shimTimer=null; }
+}
+function stopShimAnim(){ if(shimTimer){ window.ClearInterval(shimTimer); shimTimer=null; } }
+/* One sweep per section rather than one per element: a single fill regardless of how many
+   placeholders are showing. Clamped to the section -- RepaintRect does not clip drawing, so a
+   band running past the panel edge would be stranded on the neighbouring panel. */
+function shimmer(gr,x,y,w,h){
+  shimCount++;
+  if(w<=0||h<=0) return;
+  var bandW=Math.max(80,Math.round(w*0.32)), span=w+bandW;
+  var bx=x-bandW+((Date.now()/3)%span);
+  var cx0=Math.max(x,bx), cx1=Math.min(x+w,bx+bandW);
+  if(cx1<=cx0) return;
+  // re-derive the stops for the clamped slice so the highlight doesn't jump as it enters or leaves
+  var p0=(cx0-bx)/bandW, p1=(cx1-bx)/bandW, mid=(0.5-p0)/Math.max(0.001,p1-p0);
+  var stops=(mid<=0||mid>=1)
+    ? [0.0,RGBA(255,255,255,0),1.0,RGBA(255,255,255,0)]
+    : [0.0,RGBA(255,255,255,0),mid,RGBA(255,255,255,22),1.0,RGBA(255,255,255,0)];
+  try{ gr.FillGradRectV2(cx0,y,cx1-cx0,h,0,stops); }catch(e){}
+}
+/* Reveal gate. A section holds its skeleton until every handle it needs has resolved artwork,
+   then appears complete instead of filling in over placeholders.
+   Three things every gate has to do:
+   - request the artwork itself. Covers are normally requested by elements as they draw, but
+     nothing draws behind a skeleton, so the gate would wait on requests nobody ever made.
+   - remember what it has seen resolve. artCache is capped and can evict an entry the gate already
+     counted, which would otherwise stall the reveal indefinitely.
+   - give up gracefully. More handles than artCache can hold means waiting is pointless (they would
+     be evicted before the reveal anyway), and a wall-clock ceiling covers slow or network storage
+     at any size. Either way it reveals on data and lets covers fill in, as it did before.
+   One-shot per key: once revealed, scrolling never drops back to a skeleton. */
+var gates={}, gateWaiting=0, GATE_BATCH=60, GATE_MAX=ART_CAP-60, GATE_TIMEOUT=12000;
+function gateReady(key,handles,max){
+  var g=gates[key];
+  if(g && g.done) return true;
+  if(!g) g=gates[key]={done:false,seen:{},t:Date.now(),keys:null};
+  var n=handles?handles.length:0;
+  if(!n || n>(max||GATE_MAX) || (Date.now()-g.t)>GATE_TIMEOUT){ g.done=true; return true; }
+  // Album keys are derived once. albKey() reads h.Path -- an interop call -- before its own cache
+  // check, so re-deriving them on every scan cost hundreds of crossings per frame, and the shimmer
+  // scans 25 times a second. That is what starved input while a section was gating.
+  if(!g.keys || g.keys.length!==n){
+    g.keys=[]; for(var q=0;q<n;q++) g.keys.push(handles[q]?albKey(handles[q]):'');
+  }
+  var pending=0, queued=0, i, h, k;
+  for(i=0;i<n;i++){
+    h=handles[i]; if(!h) continue;
+    k=g.keys[i]; if(!k) continue;
+    if(g.seen[k]) continue;
+    if(artLoaded(k)){ g.seen[k]=1; continue; }
+    pending++;
+    if(queued<GATE_BATCH){ requestArt(h,k); queued++; }   // enqueue in batches, not one burst
+  }
+  if(pending===0){ g.done=true; return true; }
+  gateWaiting++; return false;
+}
+/* Shelf cover handles. plCovers() materialises a playlist's item list, so collecting these for
+   every playlist is exactly the kind of work that must not happen inline -- it runs as a job,
+   ten playlists per slice. A card showing a 2x2 mosaic needs all four of its albums. */
+var shelfHandles=null;
+function shelfSteps(pls){
+  var out=[], i=0;
+  return [function(){
+    var end=Math.min(i+10,pls.length), c;
+    for(;i<end;i++){
+      c=plCovers(pls[i]);
+      if(c.list.length>=4) out.push(c.list[0],c.list[1],c.list[2],c.list[3]);
+      else if(c.single) out.push(c.single);
+    }
+    if(i<pls.length) return true;   // more slices needed
+    shelfHandles=out;
+  }];
+}
+/* Row views are text-dominant and virtualised, so gating them on every album in a large playlist
+   would trade a long skeleton for thumbnails that are mostly off screen. They gate on the header
+   artwork plus the albums of roughly the first screenful, which is what the reveal actually shows.
+   Distinct by album key, since one album covers many rows. */
+var ROW_GATE_N=24, rowGate={};
+function rowHandlesPl(pi){
+  var ck='p'+pi;
+  if(rowGate[ck]) return rowGate[ck];
+  var out=[], seen={}, cov=plCovers(pi), i, k;
+  if(cov.list.length>=4) out.push(cov.list[0],cov.list[1],cov.list[2],cov.list[3]);
+  else if(cov.single) out.push(cov.single);
+  var items=getItems(pi), meta=getMeta(pi);
+  for(i=0;i<meta.artkey.length && out.length<ROW_GATE_N;i++){
+    k=meta.artkey[i]; if(!k || seen[k]) continue; seen[k]=1;
+    if(items[i]) out.push(items[i]);
+  }
+  rowGate[ck]=out; return out;
+}
+function rowHandlesSongs(){
+  if(rowGate.songs) return rowGate.songs;
+  var out=[], seen={}, cov=libCovers(), i, r;
+  if(cov.list.length>=4) out.push(cov.list[0],cov.list[1],cov.list[2],cov.list[3]);
+  else if(cov.single) out.push(cov.single);
+  for(i=0;i<songsRows.length && out.length<ROW_GATE_N;i++){
+    r=songsRows[i]; if(r.k!=='t') continue;
+    var k=r.t.artkey; if(!k || seen[k]) continue; seen[k]=1;
+    if(r.t.h) out.push(r.t.h);
+  }
+  rowGate.songs=out; return out;
+}
+/* The card skeleton is static -- only the shimmer band moves -- so it is rendered once and blitted
+   thereafter. Redrawing ~48 antialiased rounded rects on every shimmer frame was competing with
+   the shelf's scroll animation for the same thread. Keyed by geometry; two entries in practice
+   (grid and shelf). */
+var skelImgs={};
+function skelCardsCached(gr,x,y,w,h,cardW,gap){
+  if(w<=0||h<=0) return;
+  var k=w+'x'+h+'x'+cardW+'x'+gap, im=skelImgs[k];
+  if(im===undefined){
+    im=null;
+    try{
+      im=gdi.CreateImage(w,h); var g=im.GetGraphics();
+      g.SetSmoothingMode(2);
+      g.FillSolidRect(0,0,w,h,COL.base);
+      skelCards(g,0,0,w,h,cardW,gap);
+      im.ReleaseGraphics(g);
+    }catch(e){ im=null; }
+    skelImgs[k]=im;
+  }
+  if(im) gr.DrawImage(im,x,y,w,h,0,0,w,h);
+  else skelCards(gr,x,y,w,h,cardW,gap);
+}
+function skelCards(gr,x,y,w,h,cardW,gap){
+  var cardH=cardW+56, cs=cardW-24, cx, cy;
+  for(cy=y; cy<y+h; cy+=cardH+8){
+    for(cx=x; cx+cardW<=x+w; cx+=cardW+gap){
+      var ch=Math.min(cardH,y+h-cy); if(ch<24) break;
+      gr.FillRoundRect(cx,cy,cardW,ch,8,8,COL.elev);
+      if(ch>cs+12) gr.FillRoundRect(cx+12,cy+12,cs,cs,6,6,RGB(34,34,34));
+    }
+  }
+}
+function skelRows(gr,x,y,w,h,rowH){
+  for(var ry=y; ry<y+h; ry+=rowH){
+    var rh=Math.min(rowH-8,y+h-ry); if(rh<14) break;
+    gr.FillRoundRect(x,ry,40,Math.min(40,rh),4,4,COL.elev);
+    gr.FillRoundRect(x+56,ry+4,Math.round(w*0.30),13,4,4,COL.elev);
+    gr.FillRoundRect(x+56,ry+23,Math.round(w*0.19),11,4,4,RGB(30,30,30));
+  }
+}
+// header block (cover + title/meta bars) shared by the playlist and All Songs skeletons
+function drawViewSkeleton(gr,r){
+  var lx=r.x+M.cpad, w=r.w-M.cpad*2, ay=r.y+44, art=M.artSz;
+  gr.FillRoundRect(lx,ay,art,art,8,8,COL.elev);
+  var tx=lx+art+24, tw=Math.max(120,w-art-24);
+  gr.FillRoundRect(tx,ay+34,Math.min(tw,420),44,6,6,COL.elev);
+  gr.FillRoundRect(tx,ay+94,Math.min(tw,260),18,4,4,RGB(30,30,30));
+  var rowsTop=r.y+M.headH, cropY=r.y+r.h;
+  if(cropY>rowsTop) skelRows(gr,lx,rowsTop,w,cropY-rowsTop,M.rowH);
+  shimmer(gr,lx,ay,w,cropY-ay);   // one sweep for the whole view keeps header and rows in phase
+}
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
 var HB_PL=[], HB_TR=[], HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[];
 var HB_CARD=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
@@ -1049,6 +1295,24 @@ function getMeta(pi){
   }
   return plMetaMap[pi];
 }
+/* Build steps for a playlist. getItems materialises the whole item list and each TF pass runs
+   over it, so on a large playlist doing these back to back is exactly the stall being avoided --
+   one per tick instead. plMetaMap is only published once every field is in, so a synchronous
+   getMeta() elsewhere still sees either nothing or a complete record, never a half-built one. */
+function metaSteps(pi){
+  var list=null, m={title:null,artist:null,album:null,len:null,artkey:null,totalSec:0,keys:null};
+  return [
+    function(){ list=getItems(pi); },
+    function(){ m.title=TF.title.EvalWithMetadbs(list); },
+    function(){ m.artist=TF.artist.EvalWithMetadbs(list); },
+    function(){ m.album=TF.album.EvalWithMetadbs(list); },
+    function(){ m.len=TF.len.EvalWithMetadbs(list); },
+    function(){ m.artkey=TF.albkey.EvalWithMetadbs(list); },
+    function(){ var s=TF.lensec.EvalWithMetadbs(list), t=0, i; for(i=0;i<s.length;i++) t+=parseInt(s[i],10)||0; m.totalSec=t; },
+    function(){ if(!plMetaMap[pi]) plMetaMap[pi]=m; }   // a sync getMeta() may have won the race
+  ];
+}
+function metaReady(pi){ return !!plMetaMap[pi]; }
 // "1 hr 23 min" / "42 min" / "38 sec" style duration
 function fmtDur(s){
   s=Math.max(0,Math.round(s)); var h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
@@ -1056,7 +1320,9 @@ function fmtDur(s){
   if(m>0) return m+' min';
   return s+' sec';
 }
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; visPlCache=null; warmJob=null; }
+// jobs={} cancels any build in flight: jobStep finds no entry for its key and simply stops, so a
+// job that started against the old data can never publish it
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; visPlCache=null; warmJob=null; jobs={}; gates={}; rowGate={}; shelfHandles=null; }
 
 /* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
    row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */
@@ -1108,7 +1374,7 @@ function layout(){
   capW=-1; applyCaption();
   applyKeyMode();
 }
-function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; }   // card bitmaps are keyed by width
+function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; skelImgs={}; }   // bitmaps are keyed by geometry
 
 function activePl(){ var i=plman.ActivePlaylist; return {i:i, name:i>=0?plman.GetPlaylistName(i):'', count:i>=0?plman.PlaylistItemCount(i):0}; }
 function updateNP(){
@@ -1251,6 +1517,13 @@ function perfBreak(n){
   perfP={};
   return out.length?('   [ '+out.join('  ')+' ]'):'';
 }
+/* Only frames that actually redraw main may settle the shimmer -- a bar-only repaint (the 1Hz
+   clock) would otherwise count zero skeletons and stop the animation while one is on screen. */
+function drawMainCounted(gr){
+  shimCount=0; gateWaiting=0;
+  drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w);
+  shimSettle();
+}
 function on_paint(gr){
   if(!PERF){ paintFrame(gr); return; }
   var t0=Date.now(); paintFrame(gr); var d=Date.now()-t0;
@@ -1285,7 +1558,7 @@ function paintFrame(gr){
     pt('title',function(){ drawTitleBar(gr); });
     // main before nav: the home shelf's leftmost card is drawn partly outside the panel
     // (continuous scroll), so nav must repaint over that bleed -- same reason queue follows main
-    pt('main',function(){ drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); });
+    pt('main',function(){ drawMainCounted(gr); });
     pt('nav',function(){ drawNav(gr); });
     pt('queue',function(){ drawQueue(gr); });
     pt('bar',function(){ drawBar(gr); });
@@ -1295,7 +1568,7 @@ function paintFrame(gr){
   // partial composite: only the regions actually flagged (each drawn over live content)
   if(dirtyTitle){ dirtyTitle=false; pt('title',function(){ drawTitleBar(gr); }); }
   if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
-  if(dirtyMain){ dirtyMain=false; pt('main',function(){ drawMain(gr); roundTop(gr,R.main.x,R.main.y,R.main.w); }); }
+  if(dirtyMain){ dirtyMain=false; pt('main',function(){ drawMainCounted(gr); }); }
   if(dirtyNav){ dirtyNav=false; pt('nav',function(){ drawNav(gr); }); }
   if(dirtyQueue){ dirtyQueue=false; pt('queue',function(){ drawQueue(gr); }); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
@@ -1469,6 +1742,13 @@ function drawGroupMenu(gr){ SG_HB=sgMenuOpen?drawDropMenu(gr,HB_SG,SONGS_GROUPS,
 function drawPlaylist(gr,r){
   HB_TR=[]; HB_PLADD_FILES=null; HB_PLADD_FOLDER=null;
   var p=activePl();
+  // the header reads meta too (track count, total duration), so the whole view waits on it, and
+  // then on the artwork the reveal will actually show
+  var metaOk=ensureBuilt('meta'+p.i,function(){ return metaReady(p.i); },function(){ return metaSteps(p.i); });
+  if(!metaOk || !gateReady('plart'+p.i,rowHandlesPl(p.i))){
+    if(metaOk || skelVisible('meta'+p.i)) drawViewSkeleton(gr,r);
+    return;
+  }
   gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawPlCover(gr,ax,ay,art,8,p.i,p.name);
@@ -1676,15 +1956,33 @@ function drawHome(gr,r){
   var scardW=(pls.length>cols)?Math.floor((w-cols*gap)/(cols+0.4)):cardW, scardH=scardW+56;
   var artTitleY=shelfY+scardH+(pls.length>cols?26:16), gy=artTitleY+42;   // artist grid top
   var cropY=r.y+r.h, rowStep=cardH+8, viewH=cropY-gy;
-  var arts=getArtistList();
-  // warm artist avatars + shelf covers
-  if(!warmed['home']){ warmed['home']=1; startWarmHome(arts,pls); }
+  // The artist grid waits on getArtistList (a full-library TF pass); the shelf does not -- playlist
+  // names and counts are available immediately, so it renders real cards straight away and its
+  // covers fill in as they arrive, which is what Spotify does with data it already has.
+  var listReady=ensureBuilt('arts',function(){ return artistList!==null; },
+                            function(){ return [function(){ libTF('artistName'); },function(){ getArtistList(); }]; });
+  var arts=listReady?artistList:[];
+  /* The shelf holds its reveal until its covers are in: a 2x2 mosaic with two of four albums looks
+     broken rather than merely unfinished, and it is only ~20 cards, so the wait is about a second.
+     The artist grid does NOT wait on artwork -- it is 250+ cards, the wait would be several
+     seconds, and its fallback is a seeded colour per artist rather than a grey box. It appears as
+     soon as the names are known and fills in, which is also what Spotify does once it has data. */
+  var shelfReady=ensureBuilt('shelfh',function(){ return shelfHandles!==null; },function(){ return shelfSteps(pls); })
+                 && gateReady('shelf',shelfHandles);
+  var artsReady=listReady;
+  if(artsReady && !warmed['home']){ warmed['home']=1; startWarmHome(arts,pls); }
   var totalRows=Math.max(1,Math.ceil(arts.length/cols)), contentH=totalRows*rowStep, maxPx=Math.max(0,contentH-viewH);
   HOME_MAXROW=maxPx;
   homeScroll=clampPx(homeScroll,maxPx); homeScrollT=clampPx(homeScrollT,maxPx);
 
   // ---- 1) artist grid (continuous; the top partial row overflows up, cleared below) ----
   pt('grid',function(){
+    if(!artsReady){
+      // once the list is built the wait is on artwork, which is deliberate -- show it immediately
+      // rather than applying the flash-avoidance delay meant for a build that may finish in a frame
+      if(listReady || skelVisible('arts')){ skelCardsCached(gr,x0,gy,w,cropY-gy,cardW,gap); shimmer(gr,x0,gy,w,cropY-gy); }
+      return;
+    }
     for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
       var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
       if(ay>=cropY) break;
@@ -1703,6 +2001,10 @@ function drawHome(gr,r){
   HOME_PLMAX=Math.max(0,shelfW-w); HOME_STRIDE=stride;
   plScroll=clampPx(plScroll,HOME_PLMAX); plScrollT=clampPx(plScrollT,HOME_PLMAX);
   pt('shelf',function(){
+    if(!shelfReady){
+      skelCardsCached(gr,x0,shelfY,w,scardH,scardW,gap); shimmer(gr,x0,shelfY,w,scardH);
+      return;
+    }
     for(i=Math.floor(plScroll/stride);i<pls.length;i++){
       // snap to whole pixels: the eased offset is fractional, and an antialiased card at a
       // sub-pixel x leaves a translucent fringe at the clip seam
@@ -1755,7 +2057,11 @@ function drawArtist(gr,r){
 /* ---- All Songs: header + group-by pill + grouped/flat track list ---- */
 function drawSongs(gr,r){
   HB_TR=[]; HB_CARD=[]; HB_SG=null;
-  if(!songsRows) buildSongsRows();
+  var songsOk=ensureBuilt('songs',songsReady,songsSteps);
+  if(!songsOk || !gateReady('songsart',rowHandlesSongs())){
+    if(songsOk || skelVisible('songs')) drawViewSkeleton(gr,r);
+    return;
+  }
   var cov=libCovers(), g=songsGroup;
   // header: gradient wash + mosaic cover + title/meta, mirroring the playlist header
   gr.FillGradRect(r.x,r.y,r.w,SHEAD,90,blend(artHue(cov.single,'__lib__'),COL.base,0.42),COL.base,1.0);
@@ -2025,7 +2331,13 @@ function drawQueue(gr){
   var pnm=(rawnm===SHUF)?shufSrcName:(rawnm===ROUTE?'':rawnm);   // show the real source, not the hidden copy
   if(qy+30<bottom){
     tL(gr,pnm?('Next from: '+pnm):'Next up',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=36;
-    if(pli>=0){
+    // The playing playlist's metadata is built on ticks like everywhere else -- this runs on the
+    // first paint whatever view you are in, so calling getMeta() inline stalled startup on a large
+    // playlist even when you were nowhere near it.
+    if(pli>=0 && !ensureBuilt('meta'+pli,function(){ return metaReady(pli); },function(){ return metaSteps(pli); })){
+      if(skelVisible('meta'+pli)) skelRows(gr,x,qy,r.w-36,Math.min(bottom-qy,rh*4),rh);
+    }
+    else if(pli>=0){
       var items=getItems(pli), qmeta=getMeta(pli), cnt=plman.PlaylistItemCount(pli);
       for(var k=start;k<cnt&&shown<20;k++){
         if(qy+rh>bottom) break;
@@ -2516,14 +2828,15 @@ function on_drag_drop(action,x,y,mask){
   navDropHover=false; plDropHover=false; repaintAll();
 }
 function on_script_unload(){
-  stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim();
+  stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); stopShimAnim();
   if(dupWatch && dupWatch.timer) window.ClearTimeout(dupWatch.timer);
 }
 function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
   libItems_=null; libTFCache={};   // everything above is derived from these
-  warmJob=null;                    // a warm in flight refers to the old artist/playlist lists
+  warmJob=null; jobs={};           // anything in flight refers to the old library
+  gates={}; rowGate={}; shelfHandles=null; artsGating=false;   // every section re-gates
 }
 function libChanged(){ invalidateLibrary(); artCardCache={}; artCardN=0; repaintAll(); }
 function on_library_items_added(){ libChanged(); }
