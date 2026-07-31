@@ -217,5 +217,14 @@ Built by **[superziper](https://github.com/superziper)**.
 Standing on: [Columns UI](https://github.com/reupen/columns_ui) by Reupen Shah, **JSplitter** by LUR,
 and [UI Wizard](https://github.com/The-Wizardium/UI-Wizard) by The Wizardium.
 
+## Licence
+
+Verdant is [MIT licensed](LICENSE) — its own code is everything under `theme/`, `tools/`,
+`dist-config/` and `docs/`.
+
+The three foobar2000 components bundled for the one-step install are **not** Verdant's work and keep
+their own licences (Columns UI is LGPL-3.0, UI Wizard is MIT). See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 Not affiliated with or endorsed by Spotify. "Spotify" is a trademark of Spotify AB; this is a
 fan-made visual theme for a local music player.

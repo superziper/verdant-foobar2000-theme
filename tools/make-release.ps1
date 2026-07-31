@@ -66,6 +66,12 @@ Copy-Item $need['fcl'] (Join-Path $stage 'extras\verdant-layout.fcl') -Force
 Copy-Item (Join-Path $repo 'tools\install.ps1') $stage -Force
 Copy-Item (Join-Path $repo 'tools\install.bat') $stage -Force
 
+# Licences travel with the binaries: the bundle redistributes three third-party components,
+# and LGPL-3.0 (Columns UI) requires the licence text to be conveyed with them. Their own
+# licence files already sit inside components\ and so ride along with the copy above.
+Copy-Item (Join-Path $repo 'LICENSE') $stage -Force
+Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $stage -Force
+
 # ---- install notes ----------------------------------------------------------
 @"
 Verdant v$version -- a modern Spotify-style theme for foobar2000
