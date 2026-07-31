@@ -4,6 +4,9 @@
 
 ### A modern Spotify-style theme for foobar2000
 
+*A foobar2000 skin that turns the world's most configurable audio player into something
+that looks like a modern streaming app.*
+
 [![Release](https://img.shields.io/github/v/release/superziper/verdant-foobar2000-theme?color=1DB954&label=release)](https://github.com/superziper/verdant-foobar2000-theme/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/superziper/verdant-foobar2000-theme/total?color=1DB954)](https://github.com/superziper/verdant-foobar2000-theme/releases)
 ![foobar2000](https://img.shields.io/badge/foobar2000-v2%20·%2064--bit-1DB954)
@@ -17,12 +20,16 @@
 
 ---
 
-Verdant restyles your **local** library and playlists into something that looks like a modern
-streaming app. Everything on screen is custom-drawn in a [JSplitter](https://hydrogenaud.io/)
-panel — sidebar, home, playlist and All Songs views, search, queue and lyrics pane, player bar,
-fullscreen mode, even the window title bar. No stock foobar widgets are involved.
+**Verdant** is a modern **foobar2000 theme** — a complete visual skin that restyles your **local**
+music library and playlists into a clean, dark, Spotify-inspired interface.
 
-It does **not** connect to Spotify's service and plays nothing you don't already own.
+Everything on screen is custom-drawn in a [JSplitter](https://hydrogenaud.io/) panel running under
+[Columns UI](https://github.com/reupen/columns_ui) — sidebar, home, playlist and All Songs views,
+search, queue and lyrics pane, player bar, fullscreen mode, even the window title bar. No stock
+foobar2000 widgets are involved, which is why it looks nothing like default foobar2000.
+
+It does **not** connect to Spotify's service and plays nothing you don't already own — it's a
+look, not a client.
 
 ---
 
@@ -171,6 +178,28 @@ foobar's own *ReplayGain → Remove ReplayGain information from files*.
 - **Windows 10 or 11**
 - Bundled and installed for you: **Columns UI**, **JSplitter** (`foo_uie_jsplitter`),
   **UI Wizard** (`foo_ui_wizard`, optional — without it you keep the normal Windows title bar)
+
+---
+
+## FAQ
+
+**Is this a theme or a skin?** Both words get used for the same thing in the foobar2000 world.
+Verdant is a full visual replacement — layout, colours, fonts, every control — not a colour tweak.
+
+**Will it change how my music sounds?** No. Verdant is purely visual. The one exception is
+*Normalize volume*, which you have to switch on yourself and which uses foobar2000's own ReplayGain.
+
+**Does it work with foobar2000 v1.x?** No — v2, 64-bit only.
+
+**Can I still use the Default UI / my old Columns UI layout?** Yes. Columns UI keeps layout presets,
+so you can switch back at Preferences → Display → Columns UI → Layout. If you installed with
+`install.bat`, your previous layout is also backed up and restorable.
+
+**Is my music library safe?** Verdant never touches your audio files. The one feature that writes
+anything is *Normalize volume*, which asks first and writes only ReplayGain tags.
+
+**It looks huge / tiny on my screen.** Set `Display: UI scale` in the panel properties — see
+[Tuning](#tuning).
 
 ---
 
