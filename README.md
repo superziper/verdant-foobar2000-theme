@@ -73,7 +73,8 @@ It does **not** connect to Spotify's service and plays nothing you don't already
 ## Install
 
 1. Install foobar2000 as **portable** from the [official website](https://www.foobar2000.org/download).
-2. Download **[`Verdant-v1.0.0.zip`](https://github.com/superziper/verdant-foobar2000-theme/releases/latest)**.
+2. Download **`Verdant-vX.Y.Z.zip`** from the
+   **[latest release](https://github.com/superziper/verdant-foobar2000-theme/releases/latest)**.
 3. Extract the **`profile`** folder from the zip into foobar2000's **root folder** (the one containing
    `foobar2000.exe`).
 4. Start foobar2000 and enjoy.
