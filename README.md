@@ -20,6 +20,8 @@ title bar. No stock foobar widgets are involved.
   import with duplicate detection.
 - **All Songs** — the whole library in one virtualised list, optionally grouped
   by artist, album, or both.
+- **Normalize volume** — one button in the All Songs header that levels your
+  whole library. See [below](#normalize-volume).
 - **Search** — instant search across artists and tracks.
 - **Queue / Lyrics pane** — what's playing next (real queue and "next from"),
   or synced `.lrc` / plain `.txt` lyrics that roll with the track.
@@ -77,6 +79,43 @@ Two knobs near the top of [`src/main.js`](src/main.js):
 
 Lyrics are read from a `.lrc` (synced) or `.txt` (plain) file sitting next to the
 audio file with the same name.
+
+---
+
+## Normalize volume
+
+**All Songs → Normalize volume** (the pill next to *Group:*) makes every track in
+your library play back at the same loudness, so you stop reaching for the volume
+knob between a quiet album and a loud one.
+
+Under the hood this is **ReplayGain**, which is two separate things — and the
+button owns both:
+
+1. **A loudness measurement per track**, stored as a `REPLAYGAIN_TRACK_GAIN` tag
+   in the file.
+2. **Playback applying that measurement** (foobar's ReplayGain source mode).
+
+The pill turns **green only when both are true**, so it can never claim to be on
+while doing nothing. The line underneath tells you where you stand — e.g.
+`1,204 of 3,000 tracks scanned`.
+
+What happens when you click it:
+
+| State | Click does |
+|---|---|
+| Some tracks unscanned | Asks for confirmation, then scans them and switches normalizing on |
+| All scanned, normalizing off | Switches it on — instant, no rescan |
+| Normalizing on (green) | Switches it off. Tags are left alone, so switching back on is instant |
+
+**The scan writes tags into your audio files**, which is why it asks first. The
+scan itself is foobar's own — its progress window and its *update file tags*
+confirmation — so you can cancel there and nothing is written. Only unscanned
+tracks are ever handed to it; rescanning is never repeated work. A large library
+takes a while the first time, but it is a one-off.
+
+Nothing here is destructive: no audio is re-encoded and no tag is removed. To
+undo it completely, use foobar's own *ReplayGain → Remove ReplayGain information
+from files* on your library.
 
 ---
 

@@ -83,7 +83,8 @@ var TF = {
   npTitle:fb.TitleFormat('[%title%]'), npArtist:fb.TitleFormat('[%artist%]'),
   albkey:fb.TitleFormat('%album artist% - %album%'), artistName:fb.TitleFormat('%album artist%'),
   year:fb.TitleFormat('$year(%date%)'), lensec:fb.TitleFormat('%length_seconds%'),
-  trackno:fb.TitleFormat('%tracknumber%')
+  trackno:fb.TitleFormat('%tracknumber%'),
+  rg:fb.TitleFormat('$if(%replaygain_track_gain%,1,0)')   // '1' once a loudness scan has tagged the file
 };
 
 /* ------------------------- DrawText flags ------------------------- */
@@ -416,7 +417,7 @@ function loadArtist(name){
    the library. Rows: {k:'g1'|'g2'|'t'}; headers also carry kind:'artist'|'album'. */
 var songsIdx=null, songsRows=null, songsTracks=null, songsContentH=0, songsTotalSec=0;
 var songsGroup='none', songsScroll=0, songsScrollT=0, SONGS_MAXPX=0;
-var sgMenuOpen=false, SG_HB=[], HB_SG=null, HB_ALLSONGS=null;
+var sgMenuOpen=false, SG_HB=[], HB_SG=null, HB_ALLSONGS=null, HB_RGNORM=null;
 var SONGS_GROUPS=[['No grouping','none'],['By artist','artist'],['By album','album'],['By artist & album','both']];
 /* ---- group-list metrics: one indent step per nesting level (SG_IND) and one shared vertical
    rhythm per header -- GAP above (the divider sits at its top), artwork, PADB below. Header
@@ -458,6 +459,7 @@ function songsSteps(){
   for(i=0;i<SONGS_FIELDS.length;i++) steps.push((function(f){ return function(){ libTF(f); }; })(SONGS_FIELDS[i]));
   steps.push(function(){ getSongsIdx(); });      // assembly only -- every field is cached by now
   steps.push(function(){ buildSongsRows(); });   // sort (atomic) + row layout
+  steps.push(function(){ if(!rgStat) rgCompute(); });   // ReplayGain status for the Normalize pill
   return steps;
 }
 function songsReady(){ return !!songsRows; }
@@ -515,6 +517,66 @@ function playSongsRow(ti){
   if(!songsTracks) return;
   var hs=[]; for(var i=0;i<songsTracks.length;i++) hs.push(songsTracks[i].h);
   playHandleList(hs,ti);
+}
+
+/* ------------------------- normalize volume (ReplayGain) -------------------------
+   "Normalize volume" is ReplayGain, and it is two independent halves: a per-track loudness figure
+   has to exist in each file's tags, AND playback has to be told to apply it. Either one alone does
+   nothing audible, so the button reflects both and only offers a scan when tags are actually
+   missing -- flipping the playback mode is instant once the library is scanned.
+
+   The scan itself is foobar's: it owns the progress window and the "update file tags" confirmation.
+   That is why nothing here tracks progress. Tags landing fires on_metadb_changed, which drops
+   rgStat, so the pill recomputes on the next paint whether the user finished or cancelled. */
+var rgStat=null, rgScanFailed=false, rgPrompt=null, RG_HB=null;
+/* One title-format pass over the library, same shape (and cost) as the libTF fields -- so it runs
+   as a sliced step of the All Songs build rather than inline in a paint. Holds the missing handles
+   rather than just a count: they are exactly what the scan gets handed. */
+function rgCompute(){
+  var lib=libItems(), total=lib?lib.Count:0, flags=[], miss=[], i;
+  if(total){ try{ flags=TF.rg.EvalWithMetadbs(lib); }catch(e){ flags=[]; } }
+  for(i=0;i<flags.length;i++) if(flags[i]!=='1') miss.push(lib[i]);
+  rgStat={total:total, missing:miss, scanned:total-miss.length};
+  return rgStat;
+}
+function rgState(){ return rgStat||rgCompute(); }
+function rgModeOn(){ try{ return fb.ReplaygainMode!==0; }catch(e){ return false; } }
+function rgSetMode(on){ try{ fb.ReplaygainMode=on?1:0; }catch(e){} }   // 1 = track gain: every track to the same loudness
+function rgActive(){ var s=rgState(); return s.total>0 && !s.missing.length && rgModeOn(); }
+/* The scanner's context command has sat under different parents across foobar versions, so try the
+   known paths and promote whichever answers. flag 8 (flag_view_full) runs the item even if the user
+   has hidden it under Preferences > Display > Context Menu. */
+var RG_SCAN_CMDS=['ReplayGain/Scan per-file track gain',
+                  'Utilities/ReplayGain/Scan per-file track gain',
+                  'Tagging/ReplayGain/Scan per-file track gain'];
+function rgRunScan(handles){
+  if(!handles.length) return true;
+  var hl=fb.CreateHandleList(), i;
+  for(i=0;i<handles.length;i++) hl.Add(handles[i]);
+  for(i=0;i<RG_SCAN_CMDS.length;i++){
+    var ok=false;
+    try{ ok=fb.RunContextCommandWithMetadb(RG_SCAN_CMDS[i],hl,8); }catch(e){ ok=false; }
+    if(ok){ RG_SCAN_CMDS.unshift(RG_SCAN_CMDS.splice(i,1)[0]); return true; }   // remember what worked
+  }
+  return false;
+}
+// One button, three situations: already normalizing -> switch off; tags all present -> switch on
+// instantly; tags missing -> confirm first, because scanning WRITES to the user's files.
+function rgToggle(){
+  var s=rgState();
+  if(!s.total) return;
+  rgScanFailed=false;
+  if(rgActive()){ rgSetMode(false); repaintAll(); return; }
+  if(!s.missing.length){ rgSetMode(true); repaintAll(); return; }
+  rgPrompt={n:s.missing.length, total:s.total}; repaintAll();
+}
+function rgConfirmScan(){
+  var miss=rgState().missing;
+  rgPrompt=null;
+  rgSetMode(true);                 // so the tags take effect the moment they land
+  rgScanFailed=!rgRunScan(miss);
+  rgStat=null;                     // recount on the next paint; the scan is foobar's from here
+  repaintAll();
 }
 
 /* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
@@ -1484,7 +1546,7 @@ function dlgBtn(gr,x,y,w,h,label,col,hcol,txt){
 }
 // themed context menu + modal overlays, painted on top of everything
 function drawOverlays(gr){
-  CTX_HB=[]; CONF_HB=null; RENAME_HB=null;
+  CTX_HB=[]; CONF_HB=null; RENAME_HB=null; RG_HB=null;
   if(renameEdit){
     var rw=Math.min(420,W-40), rhh=196, ry0=Math.round((H-rhh)/2), rx0=modalPanel(gr,rw,rhh,ry0);
     tL(gr,'Rename playlist',FONT.sect,COL.text,rx0+28,ry0+22,rw-56,26);
@@ -1529,8 +1591,32 @@ function drawOverlays(gr){
     };
   }
   if(dupPrompt) drawDupPrompt(gr);
+  if(rgPrompt) drawRgPrompt(gr);
 }
-
+// wrapped paragraph; returns the y just past the last line drawn
+function tPara(gr,s,f,c,x,y,w,lh){
+  var wr=gr.EstimateLineWrap(s,f,w);
+  for(var i=0;i<wr.length;i+=2){ tL(gr,wr[i],f,c,x,y,w,lh); y+=lh; }
+  return y;
+}
+/* Scanning WRITES ReplayGain tags into the user's audio files, so it is confirmed rather than run
+   off a single click -- and the copy says so plainly. Height follows the wrapped body so the text
+   can never overrun the panel at a different UISCALE. */
+var RG_BODY='foobar2000 will scan them and write ReplayGain tags into the files, then play every '+
+            'track at the same loudness. Its own progress window runs the scan, and nothing is deleted.';
+function drawRgPrompt(gr){
+  var cw=Math.min(470,W-40), pw=cw-56, lh=24;
+  var nl=Math.max(1,gr.EstimateLineWrap(RG_BODY,FONT.pl,pw).length/2);
+  var ch=138+nl*lh+PILL_H;
+  var cy=Math.max(10,Math.round((H-ch)/2)), cx=modalPanel(gr,cw,ch,cy);
+  var px=cx+28, y=cy+26;
+  tL(gr,'Normalize volume?',FONT.sect,COL.text,px,y,pw,26); y+=38;
+  tL(gr,fmtNum(rgPrompt.n)+' of '+fmtNum(rgPrompt.total)+' tracks still need a loudness scan.',FONT.pl,COL.text2,px,y,pw,22); y+=32;
+  tPara(gr,RG_BODY,FONT.pl,COL.text2,px,y,pw,lh);
+  var w2=pillW(gr,'Scan & normalize'), w1=pillW(gr,'Cancel'), gap=12;
+  var by=cy+ch-22-PILL_H, x2=cx+cw-28-w2, x1=x2-gap-w1;
+  RG_HB={ cancel:drawPill(gr,x1,by,w1,'Cancel',false), scan:drawPill(gr,x2,by,w2,'Scan & normalize',true) };
+}
 // "these are already in the playlist" warning, listing what was just added twice
 function drawDupPrompt(gr){
   var n=dupPrompt.idx.length, lh=26;
@@ -1568,7 +1654,7 @@ function on_paint(gr){
   // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over the
   // region it redraws (the bar's 1 Hz repaint would flash back to full brightness). While an
   // overlay owns the screen, every paint takes the full path.
-  var modal=renameEdit||ctxMenu||confirmDel||dupPrompt;
+  var modal=renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt;
   if(dirtyAll || !anyPartial || modal){ // full paint, or an OS/stale paint we can't scope
     clearDirty();
     HB_DOTS=[];
@@ -1716,7 +1802,7 @@ function drawAddPlaylist(gr,footTop,footH){
 
 function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
-  if(view!=='songs'){ HB_SG=null; SG_HB=[]; }
+  if(view!=='songs'){ HB_SG=null; SG_HB=[]; HB_RGNORM=null; }
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
@@ -1749,6 +1835,17 @@ function drawDropMenu(gr,anchor,items,cur,minW){
     out.push({x0:bx,y0:ry,x1:bx+bw,y1:ry+ih,v:items[i][1]});
   }
   return out;
+}
+/* Normalize-volume pill: the same capsule as the group-by dropdown, but a state toggle rather than
+   a menu -- filled green only when normalizing is genuinely in effect (tags present AND playback
+   applying them), so it can never claim to be on while doing nothing. */
+function drawNormalizePill(gr,x,y,w,h){
+  var on=rgActive(), hot=hv(x,y,x+w,y+h);
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,on?(hot?RGB(45,215,110):COL.green):(hot?RGB(58,58,58):RGBA(0,0,0,90)));
+  var col=on?COL.black:COL.text;
+  drawIcon(gr,'equalizer',col,x+14,y+(h-20)/2,20,20,18);
+  tL(gr,'Normalize volume',FONT.pl,col,x+42,y,w-56,h);
+  return {x0:x,y0:y,x1:x+w,y1:y+h};
 }
 function drawSortDirBtn(gr,x,y,w,h){
   gr.FillRoundRect(x,y,w,h,h/2,h/2,hv(x,y,x+w,y+h)?RGB(58,58,58):RGBA(0,0,0,90));
@@ -2071,7 +2168,7 @@ function drawArtist(gr,r){
 }
 /* ---- All Songs: header + group-by pill + grouped/flat track list ---- */
 function drawSongs(gr,r){
-  HB_TR=[]; HB_CARD=[]; HB_SG=null;
+  HB_TR=[]; HB_CARD=[]; HB_SG=null; HB_RGNORM=null;
   var songsOk=ensureBuilt('songs',songsReady,songsSteps);
   if(!songsOk || !gateReady('songsart',rowHandlesSongs())){
     if(songsOk || skelVisible('songs')) drawViewSkeleton(gr,r);
@@ -2082,13 +2179,22 @@ function drawSongs(gr,r){
   gr.FillGradRect(r.x,r.y,r.w,SHEAD,90,blend(artHue(cov.single,'__lib__'),COL.base,0.42),COL.base,1.0);
   var rx=r.x+r.w-M.cpad, lx=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawLibCover(gr,lx,ay,art,8);
-  // header text stops short of the pill's column so the two can never collide on a narrow panel
-  var gpW=232, gpX=Math.max(lx+art+24,rx-gpW);
-  var tx=lx+art+24, tw=Math.max(120,gpX-12-tx);
+  // header text stops short of the pill column so the two can never collide on a narrow panel
+  var gpW=232, pgap=8, nzW=Math.max(196,Math.round(gr.CalcTextWidth('Normalize volume',FONT.pl))+72);
+  var clW=nzW+pgap+gpW, clX=Math.max(lx+art+24,rx-clW), gpX=clX+nzW+pgap;
+  var tx=lx+art+24, tw=Math.max(120,clX-12-tx);
   tL(gr,'LIBRARY',FONT.eyebrow,COL.text,tx,ay+6,tw,18);
   tL(gr,'All Songs',FONT.title,COL.text,tx,ay+28,tw,84);
   tL(gr,fmtNum(songsTracks.length)+' songs'+(songsTotalSec>0?(' '+CH_DOT+' '+fmtDur(songsTotalSec)):''),FONT.meta,COL.text2,tx,ay+150,tw,22);
+  HB_RGNORM=drawNormalizePill(gr,clX,ay+142,nzW,38);
   HB_SG=drawDropPill(gr,gpX,ay+142,gpW,38,'Group: '+labelOf(SONGS_GROUPS,songsGroup,'No grouping'),sgMenuOpen);
+  // one line of truth under the pill: what normalizing has left to do, or what it's currently doing
+  if(rgStat && rgStat.total>0){
+    var nzCap=rgScanFailed ? "Couldn't start foobar's ReplayGain scanner"
+            : (rgStat.missing.length ? (fmtNum(rgStat.scanned)+' of '+fmtNum(rgStat.total)+' tracks scanned')
+            : ('All tracks scanned  '+CH_DOT+'  normalizing '+(rgModeOn()?'on':'off')));
+    tL(gr,nzCap,FONT.plSub,rgScanFailed?RGB(240,96,96):COL.text3,clX+2,ay+186,Math.min(clW,rx-clX)-4,18);
+  }
 
   if(!songsRows.length){
     tC(gr,'Nothing in your library yet',FONT.sect,COL.text2,r.x,r.y+SHEAD+40,r.w,24);
@@ -2556,7 +2662,7 @@ function drawFullscreen(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||dupPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||dupPrompt||rgPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -2564,7 +2670,7 @@ function on_mouse_lbtn_down(x,y){
   if(SB && inRect(x,y,SB)){ drag='scroll'; setScroll(y); return; }
 }
 function on_mouse_rbtn_up(x,y){
-  if(ctxMenu||confirmDel||renameEdit||dupPrompt) return true;   // a modal is open: swallow
+  if(ctxMenu||confirmDel||renameEdit||dupPrompt||rgPrompt) return true;   // a modal is open: swallow
   var i;
   // playlist-view track rows carry {pl,item}; rows in All Songs / artist / search views don't
   if(view==='playlist'){ for(i=0;i<HB_TR.length;i++){ if(HB_TR[i].pl!==undefined && inRect(x,y,HB_TR[i])){ return openTrackMenu(HB_TR[i].pl,HB_TR[i].item,x,y); } } }
@@ -2625,6 +2731,10 @@ function on_mouse_lbtn_up(x,y){
     if(DUP_HB && inRect(x,y,DUP_HB.skip)) dupSkip(); else dupKeep();   // "Add anyway"/outside: leave as-is
     return;
   }
+  if(rgPrompt){
+    if(RG_HB && inRect(x,y,RG_HB.scan)){ rgConfirmScan(); return; }
+    rgPrompt=null; repaintAll(); return;      // cancel / click outside
+  }
   if(confirmDel){
     if(CONF_HB && inRect(x,y,CONF_HB.del)){ doDeletePlaylist(confirmDel.pl); return; }
     confirmDel=null; repaintAll(); return;   // cancel / click outside
@@ -2667,6 +2777,7 @@ function on_mouse_lbtn_up(x,y){
     sgMenuOpen=false; repaintAll(); return;
   }
   if(HB_SG && inRect(x,y,HB_SG)){ sgMenuOpen=true; repaintAll(); return; }
+  if(HB_RGNORM && inRect(x,y,HB_RGNORM)){ rgToggle(); return; }
   if(plSortMenuOpen){
     if((t=hit(PL_SORT_HB,x,y))){ setPlSort(t.v); return; }
     plSortMenuOpen=false; repaintAll(); return;
@@ -2714,6 +2825,7 @@ function hoverSig(x,y){
   var i;
   if(dupPrompt){ if(DUP_HB){ if(inRect(x,y,DUP_HB.skip)) return 'dps'; if(inRect(x,y,DUP_HB.keep)) return 'dpk'; } return 'dp'; }
   if(renameEdit){ if(RENAME_HB){ if(inRect(x,y,RENAME_HB.save)) return 'rns'; if(inRect(x,y,RENAME_HB.cancel)) return 'rnc'; } return 'rn'; }
+  if(rgPrompt){ if(RG_HB){ if(inRect(x,y,RG_HB.scan)) return 'rgs'; if(inRect(x,y,RG_HB.cancel)) return 'rgc'; } return 'rg'; }
   if(confirmDel){ if(CONF_HB && inRect(x,y,CONF_HB.del)) return 'cfd'; if(CONF_HB && inRect(x,y,CONF_HB.cancel)) return 'cfc'; return 'cf'; }
   if(ctxMenu){ i=hitIdx(CTX_HB,x,y); return (i<0)?'cx':('cx'+i); }
   if(sgMenuOpen){ i=hitIdx(SG_HB,x,y); return (i<0)?'sg':('sg'+i); }
@@ -2731,6 +2843,7 @@ function hoverSig(x,y){
   if(HB_PLADD_FOLDER && inRect(x,y,HB_PLADD_FOLDER)) return 'pladdd';
   if(HB_ALLSONGS && inRect(x,y,HB_ALLSONGS)) return 'als';
   if(HB_SG && inRect(x,y,HB_SG)) return 'sgb';
+  if(HB_RGNORM && inRect(x,y,HB_RGNORM)) return 'nzb';
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)) return 'psb';
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)) return 'psd';
   if(SB && inRect(x,y,SB)) return 'sb';
@@ -2755,7 +2868,7 @@ function on_mouse_move(x,y){
   if(sig!==hoverKey || sk!==scrollKey){   // sk change reveals/hides the section scrollbar
     hoverKey=sig; scrollKey=sk;
     // an overlay owns the whole screen and on_paint forces a full paint while one is open
-    if(renameEdit||ctxMenu||confirmDel||dupPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
     else { repaintZone(hoverZoneKey); if(z!==hoverZoneKey) repaintZone(z); }   // clear the old highlight, then draw the new
   }
   hoverZoneKey=z;
@@ -2775,7 +2888,7 @@ function on_mouse_leave(){
   mx=-1; my=-1;
   if(hoverKey!==''||scrollKey!==''){
     hoverKey=''; scrollKey='';
-    if(renameEdit||ctxMenu||confirmDel||dupPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
     else repaintZone(hoverZoneKey);
   }
   hoverZoneKey='';
@@ -2860,6 +2973,7 @@ function invalidateLibrary(){
   artistList=null; artistTracksMap=null; artistCoverCache={}; warmed={}; searchIdx=null; searchQ2=null;
   songsIdx=null; songsRows=null; songsTracks=null; libCovCache=null; libCount_=-1;
   libItems_=null; libTFCache={};   // everything above is derived from these
+  rgStat=null; rgScanFailed=false;
   warmJob=null; jobs={};           // anything in flight refers to the old library
   gates={}; rowGate={}; shelfHandles=null; artsGating=false;   // every section re-gates
 }
@@ -2896,7 +3010,10 @@ function on_playback_seek(){ repaintAll(); }
 function on_playback_order_changed(){ syncOrderFromFb(); repaintAll(); }
 function on_playback_queue_changed(){ repaintAll(); }
 function on_volume_change(){ repaintBar(); }
-function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; songsIdx=null; songsRows=null; songsTracks=null; updateNP(); repaintAll(); }
+// ReplayGain can also be switched from foobar's own Playback menu -- keep the pill honest
+function on_replaygain_mode_changed(){ repaintMain(); }
+// rgStat included: a ReplayGain scan lands as a tag write, so this is how the pill learns it finished
+function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCoverCache={}; songsIdx=null; songsRows=null; songsTracks=null; rgStat=null; updateNP(); repaintAll(); }
 function on_playlist_switch(){ firstRow=firstRowT=0; invalidateItems(); repaintAll(); }
 function on_playlists_changed(){ invalidateItems(); repaintAll(); }
 function on_playlist_items_added(pl){ invalidateItems(); if(dupWatch && dupWatch.pl===pl) scheduleDupScan(); repaintAll(); }
