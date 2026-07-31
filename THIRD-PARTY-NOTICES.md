@@ -1,8 +1,11 @@
 # Third-party notices
 
-Verdant itself is MIT licensed (see [LICENSE](LICENSE)). To make the theme install in one step, the
-repository and the release zip also **redistribute three foobar2000 components, unmodified**. Those
-components are not Verdant's work and keep their own licences and copyright.
+Verdant itself is MIT licensed (see [LICENSE](LICENSE)). That licence covers Verdant's own work:
+everything under `theme/`, `tools/`, `dist-config/` and `docs/`.
+
+To make the theme install in one step, the repository and the release zip also **redistribute three
+foobar2000 components, unmodified**. Those components are not Verdant's work and keep their own
+licences and copyright.
 
 They are shipped under `components/` in this repository and under
 `profile/user-components-x64/` in the release zip.

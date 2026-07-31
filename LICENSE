@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence covers Verdant's own work: everything under theme/, tools/,
-dist-config/ and docs/.
-
-It does NOT cover the third-party foobar2000 components redistributed under
-components/ (and inside the release zip), which keep their own licences.
-See THIRD-PARTY-NOTICES.md.
