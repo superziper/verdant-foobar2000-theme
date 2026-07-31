@@ -48,49 +48,42 @@ title bar. No stock foobar widgets are involved.
 
 ## Install
 
-Download the latest **`Verdant-vX.Y.Z.zip`** from
-[Releases](../../releases), then:
+1. Install foobar2000 as **portable** from the
+   [official website](https://www.foobar2000.org/download).
+2. Download **`Verdant-vX.Y.Z.zip`** from [Releases](../../releases).
+3. Extract the **`profile`** folder from the zip into foobar2000's **root folder**
+   (the one containing `foobar2000.exe`).
+4. Start foobar2000 and enjoy.
 
-1. **Close foobar2000.**
-2. Extract the zip anywhere and **double-click `install.bat`**.
-3. **Start foobar2000.**
+That's it — no components to install separately, and **no fonts to install**:
+Verdant uses Segoe UI and Segoe MDL2 Assets, both of which ship with Windows 10
+and 11.
 
-The installer finds your foobar (portable or standard), installs the theme, adds
-only the components you're missing, and applies the layout. It backs up anything
-it replaces and writes an `uninstall.ps1` next to the backup.
+For a **standard (non-portable)** install, extract the *contents* of the `profile`
+folder into `%APPDATA%\foobar2000` instead, then start foobar2000.
 
-**It won't overwrite anything that already exists except its own theme folder.**
-Your library, playlists, output device, DSPs and component settings are left
-alone. If you already run Columns UI, only the panel *layout* is replaced —
-colours, fonts, playlist columns and filters all survive, because that path uses
-Columns UI's own layout import rather than replacing its config file.
+### Already have a foobar2000 you've set up?
 
-<details>
-<summary><b>Install by hand (no scripts)</b></summary>
+**Don't extract over it.** The `profile` folder carries a layout and core settings,
+so copying it in would replace your own. Run the installer instead:
 
 1. Close foobar2000.
-2. Copy the contents of the zip's `profile\` into your profile folder — the
-   `profile` folder next to `foobar2000.exe` (portable), or `%APPDATA%\foobar2000`
-   (standard). This only *adds* files; it cannot overwrite your settings.
-3. Start foobar2000, then:
-   - Preferences → **Display** → set the interface to **Columns UI** (restart if asked)
-   - Preferences → Display → Columns UI → **Layout**: right-click the top node →
-     **Remove root panel**; right-click the empty root → **Add panel** →
-     **Splitters** → **JSplitter**; Apply
-   - Right-click the panel → **Configure** → *Script source*: **File** → `verdant\main.js`
+2. Double-click **`install.bat`**.
+3. Start foobar2000.
 
-Everything in the zip's `extras\` folder is for the installer — those files
-*replace* configuration rather than add to it, so don't copy them in by hand.
-</details>
+It checks before it writes: it adds only the components you're missing, and if you
+already use Columns UI it replaces **only the panel layout** — your colours, fonts,
+playlist columns and filters are left alone, because it uses Columns UI's own layout
+import rather than replacing its config file. It backs up whatever it touches and
+writes an `uninstall.ps1` beside the backup in `<profile>\verdant-backup\<date>\`.
+
+`extras\verdant-layout.fcl` is that layout on its own, if you'd rather import it
+yourself: Preferences → Display → Columns UI → **Import**, ticking **Main Layout**
+and **Toolbar Layout**.
 
 > **Empty library?** The Home and All Songs views read foobar's Media Library,
 > not your playlists. On a new foobar that library is empty, so add a music folder
 > under Preferences → **Media Library**. That's expected, not a broken install.
-
-### Uninstall
-
-Run `uninstall.ps1` from the backup folder the installer printed
-(`<profile>\verdant-backup\<date>\`), then delete `<profile>\verdant\`.
 
 ---
 

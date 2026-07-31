@@ -40,14 +40,13 @@ function Warn   ($m) { Write-Host "  $m" -ForegroundColor Yellow }
 # 0. locate the payload. Works both from the release zip (install.ps1 beside
 #    profile\ and extras\) and from a repo checkout (tools\install.ps1).
 # ---------------------------------------------------------------------------
-#    Note the split in the release layout: profile\ holds only things that are safe to merge
-#    into someone's profile (the theme, missing components), because a user may extract the
-#    zip by hand and a zip extraction cannot make decisions. Everything conditional --
-#    the prepared configs, the core settings, the layout file -- lives under extras\ and is
-#    applied only by this script, only when it has established it won't destroy anything.
+#    The zip's profile\ is a complete drop-in, so extracting it over a fresh portable install
+#    IS the installation. This script exists for the other case: a foobar that is already set
+#    up, where dropping files in wholesale would throw away someone's configuration. It applies
+#    the same payload, but checks each piece against what is already there first.
 $repoRoot = Split-Path -Parent $ScriptDir
 $layouts = @(
-    [pscustomobject]@{ Theme=(Join-Path $ScriptDir 'profile\verdant');    Comp=(Join-Path $ScriptDir 'profile\user-components-x64'); Cfg=(Join-Path $ScriptDir 'extras\configuration'); Fcl=(Join-Path $ScriptDir 'extras\verdant-layout.fcl'); Sqlite=(Join-Path $ScriptDir 'extras\config.sqlite') }
+    [pscustomobject]@{ Theme=(Join-Path $ScriptDir 'profile\verdant');    Comp=(Join-Path $ScriptDir 'profile\user-components-x64'); Cfg=(Join-Path $ScriptDir 'profile\configuration'); Fcl=(Join-Path $ScriptDir 'extras\verdant-layout.fcl'); Sqlite=(Join-Path $ScriptDir 'profile\config.sqlite') }
     [pscustomobject]@{ Theme=(Join-Path $repoRoot  'theme\verdant');      Comp=(Join-Path $repoRoot  'components');                 Cfg=(Join-Path $repoRoot  'dist-config');          Fcl=(Join-Path $repoRoot  'dist-config\verdant-layout.fcl'); Sqlite=(Join-Path $repoRoot 'dist-config\config.sqlite') }
 )
 $P = $layouts | Where-Object { Test-Path $_.Theme } | Select-Object -First 1
