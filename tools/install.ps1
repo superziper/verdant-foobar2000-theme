@@ -1,6 +1,6 @@
 <#
     Verdant -- installer for foobar2000
-    A modern Spotify-style theme. https://github.com/superziper/foobar2000-spotify-theme
+    A modern Spotify-style theme. https://github.com/superziper/verdant-foobar2000-theme
 
     Usage
         double-click install.bat
