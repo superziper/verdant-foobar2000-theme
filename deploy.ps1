@@ -1,22 +1,39 @@
 <#
-    deploy.ps1 -- copies src\ into the foobar2000 profile scripts folder
-    so the JavaScript Panel bootstrap can include main.js from a path
-    foobar always allows (fb.ProfilePath).
+    deploy.ps1 -- copies src\ into the foobar2000 profile scripts folder, so the
+    one-line bootstrap can include() main.js from a path foobar always allows
+    (fb.ProfilePath). Only needed for the edit->reload dev loop; a normal install
+    is just pasting src\main.js into the panel.
 
     Usage:
-        .\deploy.ps1            # one-shot copy
-        .\deploy.ps1 -Watch     # copy now, then re-copy whenever a src file changes
+        .\deploy.ps1                                  # one-shot copy
+        .\deploy.ps1 -Watch                           # re-copy whenever a src file changes
+        .\deploy.ps1 -FoobarProfile 'D:\fb2k\profile' # portable install
 
-    After deploying, reload the panel in foobar (right-click > Reload,
-    or open its config and press Ctrl+S) to pick up the changes.
+    The profile folder is auto-detected for a standard install; pass
+    -FoobarProfile for a portable one (the folder containing foobar2000.cfg).
+
+    After deploying, reload the panel in foobar (right-click > Reload, or open
+    its config and press Ctrl+S) to pick up the changes.
 #>
 param(
     [switch]$Watch,
-    [string]$FoobarProfile = 'D:\portable programs\foobar2000\profile'
+    [string]$FoobarProfile
 )
 
 $ErrorActionPreference = 'Stop'
-$src  = Join-Path $PSScriptRoot 'src'
+$src = Join-Path $PSScriptRoot 'src'
+
+if (-not $FoobarProfile) {
+    $candidates = @(
+        (Join-Path $env:APPDATA 'foobar2000-v2'),
+        (Join-Path $env:APPDATA 'foobar2000')
+    )
+    $FoobarProfile = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $FoobarProfile) {
+    throw "foobar2000 profile not found. Pass -FoobarProfile <path to the folder containing foobar2000.cfg>."
+}
+
 $dest = Join-Path $FoobarProfile 'scripts\foobar-spotify'
 
 function Sync-Scripts {

@@ -1,17 +1,34 @@
 'use strict';
 
-/* foobar2000 x Spotify skin. Runs in a JSplitter panel (GDI+); load via bootstrap.txt. */
+/* ============================================================================
+   Spotify for foobar2000 -- a Spotify-styled skin drawn from scratch in a
+   JSplitter panel (foo_uie_jsplitter, SpiderMonkey + GDI+).
+
+   Everything on screen is custom-drawn: sidebar, home, playlist and All Songs
+   views, search, queue/lyrics pane, player bar, fullscreen mode and the window
+   title bar. No stock foobar widgets are used.
+
+   Single file by design -- a JSplitter panel takes one script, and the whole
+   thing runs on ONE thread shared with the UI, which is why so much here is
+   cached, sliced across timer ticks, or scoped to a single panel's repaint.
+
+   Requires foobar2000 v2 (64-bit) + Columns UI + foo_uie_jsplitter.
+   Optional: foo_ui_wizard, for the frameless window and custom title bar.
+   See README.md for installation.
+   ============================================================================ */
 
 // the key is `features`, not `options` -- without features.drag_n_drop the panel is never
 // registered as an OLE drop target, so no on_drag_* fires
-window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', features:{ drag_n_drop:true, grab_focus:true } });
+window.DefineScript('Spotify for foobar2000', { author:'zulvanavivi', version:'1.0', features:{ drag_n_drop:true, grab_focus:true } });
 var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view (see applyKeyMode)
 
 /* ------------------------- colour helpers ------------------------- */
 function RGB(r,g,b){ return (0xff000000|(r<<16)|(g<<8)|b); }
 function RGBA(r,g,b,a){ return ((a<<24)|(r<<16)|(g<<8)|b); }
 
-/* ------------------------- tokens ------------------------- */
+/* ------------------------- tokens -------------------------
+   The two knobs worth touching are UISCALE (below, text size for your DPI) and M.navW /
+   M.queueW (sidebar and queue-pane widths). Everything else is derived layout. */
 var COL = {
   black:RGB(0,0,0), base:RGB(18,18,18), elev:RGB(24,24,24), hover:RGB(42,42,42),
   text:RGB(255,255,255), text2:RGB(179,179,179), text3:RGB(106,106,106),
@@ -19,7 +36,7 @@ var COL = {
   rowHover:RGBA(255,255,255,18), rowActive:RGBA(255,255,255,38),
   line:RGBA(255,255,255,28), seekbg:RGB(77,77,77)
 };
-var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:84, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };
+var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:84, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };   // navW/queueW: sidebar + queue widths
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
 /* ------------------------- fonts (create once) -------------------------
@@ -113,9 +130,12 @@ var ICONS={
  sortDesc:"<path d='M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.59-5.58L4 12l8 8 8-8z'/>"
 };
 var svgCache={};
+// keyed on the numeric colour (alpha stripped -- drawIcon applies that at blit time), so a hit
+// costs one concat instead of unpacking the channels into a string on every icon of every frame
 function iconImg(name,size,col){
-  var rgb=((col>>16)&0xff)+','+((col>>8)&0xff)+','+(col&0xff), key=name+'|'+size+'|'+rgb;
+  var key=name+'|'+size+'|'+(col&0xffffff);
   if(svgCache.hasOwnProperty(key)) return svgCache[key];
+  var rgb=((col>>16)&0xff)+','+((col>>8)&0xff)+','+(col&0xff);
   var xml="<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='"+size+"' height='"+size+"'><g fill='rgb("+rgb+")'>"+ICONS[name]+"</g></svg>";
   var bmp=null; try{ bmp=gdi.LoadSVG(xml,size); }catch(e){ bmp=null; }
   svgCache[key]=bmp; return bmp;
@@ -275,8 +295,6 @@ function memTick(){
   THUMB_CAP    =capClamp(Math.round(THUMB_CAP*d),    CAP_MIN.thumb,CAP_MAX.thumb);
   ART_CARD_CAP =capClamp(Math.round(ART_CARD_CAP*d), CAP_MIN.card, CAP_MAX.card);
   GATE_MAX=ART_CAP-60;   // a reveal gate can only wait on what the cache can still hold
-  if(PERF) console.log('mem '+(used/1048576).toFixed(0)+'/'+(lim/1048576).toFixed(0)
-    +'MB  caps art '+ART_CAP+' cart '+CART_CAP+' thumb '+THUMB_CAP+' card '+ART_CARD_CAP);
 }
 function startMemWatch(){ if(!memTimer) memTimer=window.SetInterval(memTick,4000); }
 function stopMemWatch(){ if(memTimer){ window.ClearInterval(memTimer); memTimer=null; } }
@@ -301,9 +319,7 @@ function startArt(h,key){
     utils.GetAlbumArtAsyncV2(0,h,0,false,false,false).then(function(res){
       var img=res?res.image:null;
       if(img && img.Width>ART_MAXPX){
-        var t0=PERF?Date.now():0;
         try{ img=img.Resize(ART_MAXPX,Math.round(img.Height*ART_MAXPX/img.Width),ART_DOWNSCALE); }catch(e){}
-        if(PERF){ perfP['artResize']=(perfP['artResize']||0)+(Date.now()-t0); }
       }
       artDone(key,img); artWarmRepaint();
     }, function(){ artDone(key,null); });
@@ -724,8 +740,7 @@ function renderPlCard(pi,w,hov){
 }
 function plCardImg(pi,w){
   var key=pi+'|'+w;
-  if(plCardCache.hasOwnProperty(key)){ if(PERF) perfHit++; return plCardCache[key]; }
-  if(PERF) perfMiss++;
+  if(plCardCache.hasOwnProperty(key)) return plCardCache[key];
   if(!plCoverReady(pi)) return null;        // not cached yet -> retried next frame
   plCardCache[key]=renderPlCard(pi,w,false); return plCardCache[key];
 }
@@ -820,11 +835,7 @@ function stopScrollAnim(){ if(scrollTimer){ window.ClearInterval(scrollTimer); s
    the thing it was smoothing, and long enough to flash a skeleton. Instead a slice keeps running
    steps until it has used its budget, and the FIRST slice runs synchronously: anything that fits
    in a frame finishes inline and never shows a loading state at all. */
-/* SKEL_TEST forces the loading path so the skeletons can be inspected: one step per slice, a slow
-   tick between them, and no delay before drawing. Set it back to false when done -- with it off,
-   builds that fit in a frame finish inline and no loading state is ever shown. */
-var SKEL_TEST=false;
-var jobs={}, JOB_BUDGET=SKEL_TEST?0:8;
+var jobs={}, JOB_BUDGET=8;
 function jobRun(key,steps){
   if(jobs[key]) return;
   jobs[key]={i:0,steps:steps,t:Date.now()};
@@ -845,7 +856,7 @@ function jobSlice(key,fromTimer){
     if(fromTimer){ repaintMain(); if(R.queue) repaintQueue(); }
     return;
   }
-  window.SetTimeout(function(){ jobSlice(key,true); },SKEL_TEST?60:1);
+  window.SetTimeout(function(){ jobSlice(key,true); },1);
 }
 function ensureBuilt(key,ready,steps){
   if(ready()){ if(jobs[key]) delete jobs[key]; return true; }
@@ -854,7 +865,7 @@ function ensureBuilt(key,ready,steps){
 }
 // A build that finishes quickly must not flash a skeleton, so nothing is drawn for the first
 // 150ms -- on the fast path that is a frame or two and invisible.
-var SKEL_DELAY=SKEL_TEST?0:150;
+var SKEL_DELAY=150;
 function skelVisible(key){ var j=jobs[key]; return !!j && (Date.now()-j.t)>SKEL_DELAY; }
 
 /* ---- skeleton + shimmer ---- */
@@ -1361,7 +1372,7 @@ function fmtDur(s){
 }
 // jobs={} cancels any build in flight: jobStep finds no entry for its key and simply stops, so a
 // job that started against the old data can never publish it
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; visPlCache=null; warmJob=null; jobs={}; gates={}; rowGate={}; shelfHandles=null; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; qMetaCache={}; visPlCache=null; warmJob=null; jobs={}; gates={}; rowGate={}; shelfHandles=null; }
 
 /* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
    row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */
@@ -1415,7 +1426,8 @@ function layout(){
 }
 function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; skelImgs={}; }   // bitmaps are keyed by geometry
 
-function activePl(){ var i=plman.ActivePlaylist; return {i:i, name:i>=0?plman.GetPlaylistName(i):'', count:i>=0?plman.PlaylistItemCount(i):0}; }
+// name/count come from the per-playlist caches, not fresh interop: this runs on every paint of the playlist view
+function activePl(){ var i=plman.ActivePlaylist; return {i:i, name:i>=0?plName(i):'', count:i>=0?plCount(i):0}; }
 function updateNP(){
   var m=(fb.IsPlaying||fb.IsPaused)?fb.GetNowPlaying():null;
   NP=m;
@@ -1518,6 +1530,7 @@ function drawOverlays(gr){
   }
   if(dupPrompt) drawDupPrompt(gr);
 }
+
 // "these are already in the playlist" warning, listing what was just added twice
 function drawDupPrompt(gr){
   var n=dupPrompt.idx.length, lh=26;
@@ -1539,42 +1552,6 @@ function drawDupPrompt(gr){
   var by=cy+ch-22-PILL_H, x2=cx+cw-28-w2, x1=x2-gap-w1;
   DUP_HB={ keep:drawPill(gr,x1,by,w1,'Add anyway',false), skip:drawPill(gr,x2,by,w2,'Skip duplicates',true) };
 }
-/* Paint timing. PERF=true logs to foobar's Console (View > Console) every 30 frames, so a
-   change can be measured instead of guessed at. paintFrame has several early returns, hence
-   the wrapper rather than inline timing. */
-var PERF=false, perfN=0, perfSum=0, perfMax=0, perfTot=0, perfLines=[], PERF_LOG='C:\\tmp\\fb2k-perf.log';
-/* Per-panel accumulator. Date.now() is coarse (~1-15ms), so times are summed across the whole
-   30-frame window and averaged, which washes the granularity out. */
-var perfP={}, perfHit=0, perfMiss=0;
-function pt(name,fn){
-  if(!PERF){ fn(); return; }
-  var t=Date.now(); fn(); perfP[name]=(perfP[name]||0)+(Date.now()-t);
-}
-/* window.JsMemoryStats reports the JS engine's usage against the component's hard limit -- crossing
-   that limit fails ALL panels with OOM, so it is the real budget for cache sizing, not system RAM.
-   Open question this logs in order to answer: our caches are native GdiBitmaps, and if the counter
-   only tracks the JS heap it will not move as artwork accumulates, in which case sizing against it
-   is meaningless and we must account for bitmap bytes ourselves.
-   `est` is our own arithmetic for comparison: entries x pixels x 4. If mem tracks bitmaps the two
-   should move together. */
-function memLine(){
-  var s=null; try{ s=window.JsMemoryStats; }catch(e){}
-  var mb=function(v){ return (v/1048576).toFixed(1); };
-  var est=(artCardN*179*235*4)+(artOrder.length*440*440*4*0.6)+(cArtOrder.length*155*155*4)+(thumbOrder.length*44*44*4);
-  // panel size matters: pbg is a flat fill, so its cost is pure pixel count -- a wider window
-  // inflates it, and every other section, without anything having actually got slower
-  var out='  win '+W+'x'+H+' main '+(R.main?R.main.w+'x'+R.main.h:'?')
-    +'  est '+mb(est)+'MB  art '+artOrder.length+' cart '+cArtOrder.length+' thumb '+thumbOrder.length;
-  if(s) out+='  js '+mb(s.MemoryUsage)+'/'+mb(s.TotalMemoryLimit)+'MB (all '+mb(s.TotalMemoryUsage)+')';
-  else out+='  js n/a';
-  return out;
-}
-function perfBreak(n){
-  var k, out=[];
-  for(k in perfP) if(perfP[k]>0) out.push(k+' '+(perfP[k]/n).toFixed(1));
-  perfP={};
-  return out.length?('   [ '+out.join('  ')+' ]'):'';
-}
 /* Only frames that actually redraw main may settle the shimmer -- a bar-only repaint (the 1Hz
    clock) would otherwise count zero skeletons and stop the animation while one is on screen. */
 function drawMainCounted(gr){
@@ -1583,24 +1560,6 @@ function drawMainCounted(gr){
   shimSettle();
 }
 function on_paint(gr){
-  if(!PERF){ paintFrame(gr); return; }
-  var t0=Date.now(); paintFrame(gr); var d=Date.now()-t0;
-  perfSum+=d; if(d>perfMax) perfMax=d;
-  if(++perfN>=30){
-    perfTot+=perfN;
-    var line='frame '+perfTot+'  avg '+(perfSum/perfN).toFixed(1)+'ms  max '+perfMax+'ms  view='+view+perfBreak(perfN)
-      +'  card hit '+perfHit+' miss '+perfMiss+'  artists '+(artistList?artistList.length:0)+'  cached '+artCardN
-      +memLine();
-    perfHit=0; perfMiss=0;
-    console.log(line);
-    // WriteTextFile has no append mode (3rd arg is write_bom), so keep the log in memory and
-    // rewrite it whole -- otherwise each flush clobbers the previous samples
-    perfLines.push(line); if(perfLines.length>80) perfLines.shift();
-    try{ utils.WriteTextFile(PERF_LOG,perfLines.join('\r\n'),false); }catch(e){}
-    perfN=0; perfSum=0; perfMax=0;
-  }
-}
-function paintFrame(gr){
   visPlCache=null;   // one playlist scan per frame, shared by drawNav and drawHome
   gr.SetSmoothingMode(2);
   gr.SetInterpolationMode(5);   // NearestNeighbor: every DrawImage here is 1:1, so filtering is pure cost
@@ -1614,24 +1573,24 @@ function paintFrame(gr){
     clearDirty();
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
-    pt('title',function(){ drawTitleBar(gr); });
+    drawTitleBar(gr);
     // main before nav: the home shelf's leftmost card is drawn partly outside the panel
     // (continuous scroll), so nav must repaint over that bleed -- same reason queue follows main
-    pt('main',function(){ drawMainCounted(gr); });
-    pt('nav',function(){ drawNav(gr); });
-    pt('queue',function(){ drawQueue(gr); });
-    pt('bar',function(){ drawBar(gr); });
-    pt('ovl',function(){ drawOverlays(gr); });
+    drawMainCounted(gr);
+    drawNav(gr);
+    drawQueue(gr);
+    drawBar(gr);
+    drawOverlays(gr);
     return;
   }
   // partial composite: only the regions actually flagged (each drawn over live content)
-  if(dirtyTitle){ dirtyTitle=false; pt('title',function(){ drawTitleBar(gr); }); }
+  if(dirtyTitle){ dirtyTitle=false; drawTitleBar(gr); }
   if(dirtyMain||dirtyNav) HB_DOTS=[];   // these rebuild their hover targets
-  if(dirtyMain){ dirtyMain=false; pt('main',function(){ drawMainCounted(gr); }); }
-  if(dirtyNav){ dirtyNav=false; pt('nav',function(){ drawNav(gr); }); }
-  if(dirtyQueue){ dirtyQueue=false; pt('queue',function(){ drawQueue(gr); }); }
+  if(dirtyMain){ dirtyMain=false; drawMainCounted(gr); }
+  if(dirtyNav){ dirtyNav=false; drawNav(gr); }
+  if(dirtyQueue){ dirtyQueue=false; drawQueue(gr); }
   if(dirtySearch){ dirtySearch=false; if(view==='search') drawSearchBox(gr,R.main); }
-  if(dirtyBar){ dirtyBar=false; pt('bar',function(){ drawBar(gr); }); }
+  if(dirtyBar){ dirtyBar=false; drawBar(gr); }
 }
 
 function winMaxed(){ if(!UIWizard) return false; try{ return UIWizard.WindowState===1; }catch(e){ return false; } }
@@ -1761,7 +1720,7 @@ function drawMain(gr){
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
-  var r=R.main; pt('pbg',function(){ panelBg(gr,r,COL.base); });
+  var r=R.main; panelBg(gr,r,COL.base);
   if(view==='home'){ drawHome(gr,r); return; }
   if(view==='search'){ drawSearch(gr,r); return; }
   if(view==='artist'){ drawArtist(gr,r); return; }
@@ -1825,7 +1784,7 @@ function drawPlaylist(gr,r){
 
   // track list
   var lx=r.x+M.cpad, rx=r.x+r.w-M.cpad;
-  var listTop=r.y+M.headH+8, bottom=r.y+r.h-12;
+  var listTop=r.y+M.headH+8;
   var numW=30, durW=64, cgap=16;
   var albumW=Math.round((rx-lx-numW-durW-cgap*3)*0.34);
   var titleX=lx+numW+cgap, titleW=(rx-lx-numW-durW-albumW-cgap*3);
@@ -1977,8 +1936,7 @@ function evictArtCards(){
 }
 function artCardImg(a,w){
   var key=a.name+'|'+w, e=artCardCache[key];
-  if(e){ e.t=++artTick; if(PERF) perfHit++; return e.img; }
-  if(PERF) perfMiss++;
+  if(e){ e.t=++artTick; return e.img; }
   var ah=artistCover(a.name,a.handle);
   if(ah && !artLoaded(albKey(ah))) return null;      // art still loading -> don't bake a placeholder
   if(artCardN>=ART_CARD_CAP) evictArtCards();
@@ -2037,42 +1995,38 @@ function drawHome(gr,r){
   homeScroll=clampPx(homeScroll,maxPx); homeScrollT=clampPx(homeScrollT,maxPx);
 
   // ---- 1) artist grid (continuous; the top partial row overflows up, cleared below) ----
-  pt('grid',function(){
-    if(!artsReady){
-      // once the list is built the wait is on artwork, which is deliberate -- show it immediately
-      // rather than applying the flash-avoidance delay meant for a build that may finish in a frame
-      if(listReady || skelVisible('arts')){ skelCardsCached(gr,x0,gy,w,cropY-gy,cardW,gap); shimmer(gr,x0,gy,w,cropY-gy); }
-      return;
-    }
+  if(!artsReady){
+    // once the list is built the wait is on artwork, which is deliberate -- show it immediately
+    // rather than applying the flash-avoidance delay meant for a build that may finish in a frame
+    if(listReady || skelVisible('arts')){ skelCardsCached(gr,x0,gy,w,cropY-gy,cardW,gap); shimmer(gr,x0,gy,w,cropY-gy); }
+  } else {
     for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
       var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
       if(ay>=cropY) break;
       if(ay+cardH<=gy) continue;
       drawArtistCard(gr,x0+col*(cardW+gap),ay,cardW,arts[i],gy,cropY);
     }
-  });
+  }
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
 
   // ---- 2) shelf + section titles drawn ON TOP (covers the grid's top overflow) ----
-  pt('fill2',function(){ gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base); });
+  gr.FillSolidRect(r.x,r.y,r.w,gy-r.y,COL.base);
   tL(gr,'Your Playlists',FONT.sect2,COL.text,x0,shelfTitleY,w,28);
   // continuous pixel scroll (same model as the artist grid): start one card left of the viewport
   // so a partially-scrolled card still draws -- drawPlaylistCard clips it to [x0,rightEdge)
   var stride=scardW+gap, shelfW=Math.max(0,pls.length*stride-gap);
   HOME_PLMAX=Math.max(0,shelfW-w); HOME_STRIDE=stride;
   plScroll=clampPx(plScroll,HOME_PLMAX); plScrollT=clampPx(plScrollT,HOME_PLMAX);
-  pt('shelf',function(){
-    if(!shelfReady){
-      skelCardsCached(gr,x0,shelfY,w,scardH,scardW,gap); shimmer(gr,x0,shelfY,w,scardH);
-      return;
-    }
+  if(!shelfReady){
+    skelCardsCached(gr,x0,shelfY,w,scardH,scardW,gap); shimmer(gr,x0,shelfY,w,scardH);
+  } else {
     for(i=Math.floor(plScroll/stride);i<pls.length;i++){
       // snap to whole pixels: the eased offset is fractional, and an antialiased card at a
       // sub-pixel x leaves a translucent fringe at the clip seam
       var cx=Math.round(x0+i*stride-plScroll); if(cx>=rightEdge) break;
       drawPlaylistCard(gr,cx,shelfY,scardW,pls[i],x0,rightEdge);
     }
-  });
+  }
   HOME_SHELF_Y0=shelfY; HOME_SHELF_Y1=shelfY+scardH;
   var sbY=shelfY+scardH+6;
   drawScrollbarH(gr,x0,sbY,w,plScroll,HOME_PLMAX,w,shelfW,hv(x0,shelfY,rightEdge,sbY+10)||drag==='scrollh');
@@ -2320,6 +2274,15 @@ function drawSearch(gr,r){
   drawSearchBox(gr,r);
   drawScrollbar(gr,x0+w+8,top,viewH,searchScroll,maxPx,viewH,contentH,hv(x0,top,x0+w+16,cropY)||drag==='scroll');
 }
+/* Manually-queued rows have no playlist behind them, so their title/artist are formatted per
+   handle rather than read from a playlist's meta. Cached by path: the queue redraws on every
+   hover inside the panel, and two EvalWithMetadb calls per row per frame is pure interop. */
+var qMetaCache={};
+function qRowMeta(h){
+  var p=h.Path, e=qMetaCache[p];
+  if(!e) e=qMetaCache[p]={t:TF.title.EvalWithMetadb(h), a:TF.artist.EvalWithMetadb(h)};
+  return e;
+}
 // hover cue + click target for one queue row; rows are rh apart so the boxes tile exactly
 function qRow(gr,r,x,qy,rh){
   var x0=x-8, y0=qy-6, x1=r.x+r.w-10, y1=qy+rh-6;
@@ -2371,7 +2334,8 @@ function drawQueue(gr){
       if(qy+rh>bottom) break;
       var qh=mq[qi]; if(!qh) continue;
       var qhb=qRow(gr,r,x,qy,rh); qhb.q=qi; HB_Q.push(qhb);
-      qEntry(gr,r,x,qy,44,5,qh,'mq'+qi,undefined,TF.title.EvalWithMetadb(qh),TF.artist.EvalWithMetadb(qh),COL.text);
+      var qm=qRowMeta(qh);
+      qEntry(gr,r,x,qy,44,5,qh,'mq'+qi,undefined,qm.t,qm.a,COL.text);
       qy+=rh; shown++;
     }
     qy+=10;
@@ -2388,7 +2352,7 @@ function drawQueue(gr){
   var loc=playingLoc();
   var pli=(loc&&loc.IsValid)?loc.PlaylistIndex:plman.ActivePlaylist;
   var start=(loc&&loc.IsValid)?loc.PlaylistItemIndex+1:0;
-  var rawnm=(pli>=0)?plman.GetPlaylistName(pli):'';
+  var rawnm=(pli>=0)?plName(pli):'';
   var pnm=(rawnm===SHUF)?shufSrcName:(rawnm===ROUTE?'':rawnm);   // show the real source, not the hidden copy
   if(qy+30<bottom){
     tL(gr,pnm?('Next from: '+pnm):'Next up',FONT.sect,COL.text,x,qy,r.w-110,24); qy+=36;
@@ -2399,7 +2363,7 @@ function drawQueue(gr){
       if(skelVisible('meta'+pli)) skelRows(gr,x,qy,r.w-36,Math.min(bottom-qy,rh*4),rh);
     }
     else if(pli>=0){
-      var items=getItems(pli), qmeta=getMeta(pli), cnt=plman.PlaylistItemCount(pli);
+      var items=getItems(pli), qmeta=getMeta(pli), cnt=plCount(pli);
       for(var k=start;k<cnt&&shown<20;k++){
         if(qy+rh>bottom) break;
         var h=items[k]; if(!h) continue;
@@ -2504,7 +2468,7 @@ function fsIcon(gr,name,col,x,y,sz,act){
 function npPlaylistSrc(){
   var loc=playingLoc(), pli=(loc&&loc.IsValid)?loc.PlaylistIndex:-1;
   if(pli<0) return null;
-  var rnm=plman.GetPlaylistName(pli);
+  var rnm=plName(pli);
   if(rnm===SHUF) return shufSrcName||null;
   if(rnm && !isHiddenPl(rnm)) return rnm;
   return null;
@@ -2790,7 +2754,7 @@ function on_mouse_move(x,y){
   var sig=hoverSig(x,y), sk=scrollSection(x,y), z=hoverZone(x,y);
   if(sig!==hoverKey || sk!==scrollKey){   // sk change reveals/hides the section scrollbar
     hoverKey=sig; scrollKey=sk;
-    // an overlay owns the whole screen and paintFrame forces a full paint while one is open
+    // an overlay owns the whole screen and on_paint forces a full paint while one is open
     if(renameEdit||ctxMenu||confirmDel||dupPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
     else { repaintZone(hoverZoneKey); if(z!==hoverZoneKey) repaintZone(z); }   // clear the old highlight, then draw the new
   }
@@ -2944,5 +2908,4 @@ layout();
 updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
 startMemWatch();   // caches grow into the component's spare memory and back off as it fills
-console.log('[foobar-spotify] Phase 3 loaded (perf + custom title bar)');
 

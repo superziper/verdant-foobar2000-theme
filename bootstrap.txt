@@ -1,14 +1,14 @@
 'use strict';
 // ============================================================
-// foobar2000 x Spotify  --  JSplitter dev-loop bootstrap
+// Spotify for foobar2000 -- dev-loop bootstrap (OPTIONAL)
 // ------------------------------------------------------------
-// OPTIONAL. Use this ONLY after the paste-inline PoC works and
-// you want the fast edit->reload loop.
+// For a normal install, paste src/main.js into the panel and
+// ignore this file.
 //
-// Instead of pasting main.js into the panel, paste THIS one line.
-// It loads our app from the profile scripts folder that
-// deploy.ps1 writes to. Then iterate by editing src/main.js +
-// running deploy.ps1, and reload the panel (right-click > Reload).
+// For the fast edit -> reload loop, run deploy.ps1 (which copies
+// src\ into the profile scripts folder) and paste THIS one line
+// into the panel instead. Then edit src/main.js and reload the
+// panel (right-click > Reload); no foobar restart needed.
 //
 // main.js already calls window.DefineScript, so we don't here.
 // ============================================================

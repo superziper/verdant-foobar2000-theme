@@ -1,5 +1,6 @@
-# nothing built here yet; keep OS/editor cruft out
+# OS / editor cruft
 Thumbs.db
 Desktop.ini
 .vscode/
+.idea/
 *.log
