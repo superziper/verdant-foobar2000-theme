@@ -33,10 +33,13 @@ if (Get-Process -Name 'foobar2000' -ErrorAction SilentlyContinue) {
 
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
+# foo_ui_wizard.dll.cfg is deliberately NOT harvested. The theme sets FrameStyle/MoveStyle
+# itself at runtime (app.js, in layout()), so the file buys nothing -- and UI Wizard stores the
+# window geometry in it, which means harvesting it would ship the rig machine's screen size to
+# everyone. That is exactly the kind of leak the audit below now looks for.
 $wanted = @(
     @{ From = 'configuration\foo_ui_columns.dll.cfg';   Why = 'the layout: one full-window JSplitter panel bound to verdant\main.js' }
     @{ From = 'configuration\foo_uie_jsplitter.dll.cfg';Why = 'JSplitter component settings' }
-    @{ From = 'configuration\foo_ui_wizard.dll.cfg';    Why = 'frameless window / caption settings' }
     @{ From = 'config.sqlite';                          Why = 'core settings incl. the active UI = Columns UI (never-run profiles only)' }
 )
 
@@ -53,24 +56,33 @@ foreach ($w in $wanted) {
 $got | Format-Table -AutoSize
 
 # ---- privacy audit -------------------------------------------------------------------
-# These files ship to strangers. A drive-letter path in one means the rig leaked something
-# machine-specific (a scanned folder, an artwork cache, a recently-played file).
-Write-Host 'scanning harvested files for absolute paths...'
+# These files ship to strangers, so anything machine-specific in them is a bug. Two classes,
+# both of which have actually occurred: absolute paths (a scanned folder, an artwork cache),
+# and screen geometry (UI Wizard stored the rig's 2560x1440, which would have opened an
+# oversized window on every smaller display).
+Write-Host 'auditing harvested files for machine-specific data...'
 $leaks = 0
 foreach ($f in Get-ChildItem $dest -File) {
     $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
-    # match "X:\" in both ASCII and UTF-16LE
     $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
     $utf16 = [System.Text.Encoding]::Unicode.GetString($bytes)
     foreach ($text in @($ascii, $utf16)) {
         foreach ($m in [regex]::Matches($text, '[A-Za-z]:\\[^\x00-\x1f"<>|]{0,80}')) {
-            Write-Host ("  LEAK  {0}: {1}" -f $f.Name, $m.Value) -ForegroundColor Yellow
+            Write-Host ("  PATH      {0}: {1}" -f $f.Name, $m.Value) -ForegroundColor Yellow
+            $leaks++
+        }
+        foreach ($m in [regex]::Matches($text, '\{[^{}]{0,60}(?:width|height)[^{}]{0,60}\}')) {
+            Write-Host ("  GEOMETRY  {0}: {1}" -f $f.Name, $m.Value) -ForegroundColor Yellow
+            $leaks++
+        }
+        foreach ($m in [regex]::Matches($text, '(?<![\d.])(?:2560|1440|3840|2160|1920|1080|1366|768)(?![\d.])')) {
+            Write-Host ("  SCREEN?   {0}: {1} -- a display dimension; check it isn't this machine's" -f $f.Name, $m.Value) -ForegroundColor Yellow
             $leaks++
         }
     }
 }
-if ($leaks -eq 0) { Write-Host '  clean: no absolute paths found' -ForegroundColor Green }
-else { Write-Host ("  {0} path(s) found -- review before shipping" -f $leaks) -ForegroundColor Yellow }
+if ($leaks -eq 0) { Write-Host '  clean: nothing machine-specific found' -ForegroundColor Green }
+else { Write-Host ("  {0} finding(s) -- review before shipping" -f $leaks) -ForegroundColor Yellow }
 
 # ---- sanity check: is the panel actually bound to the theme? --------------------------
 $cui = Join-Path $dest 'foo_ui_columns.dll.cfg'
