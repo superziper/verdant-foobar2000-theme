@@ -8,6 +8,9 @@
         .\tools\deploy.ps1              # one-shot copy
         .\tools\deploy.ps1 -Watch       # copy now, then re-copy whenever a source file changes
 
+    The profile is auto-detected (portable install via the registry, else %APPDATA%\foobar2000).
+    Override it with -FoobarProfile, or set VERDANT_PROFILE once and forget about it.
+
     First time only, point the panel at the deployed copy:
         right-click the JSplitter panel > Configure > Script source: File
         > verdant\main.js   (paths are relative to the profile folder)
@@ -17,15 +20,43 @@
 #>
 param(
     [switch]$Watch,
-    [string]$FoobarProfile = 'D:\portable programs\foobar2000\profile'
+    [string]$FoobarProfile
 )
 
 $ErrorActionPreference = 'Stop'
-$src  = Join-Path (Split-Path -Parent $PSScriptRoot) 'theme\verdant'
-$dest = Join-Path $FoobarProfile 'verdant'
+$src = Join-Path (Split-Path -Parent $PSScriptRoot) 'theme\verdant'
+if (-not (Test-Path $src)) { throw "theme source not found: $src" }
 
-if (-not (Test-Path $src))           { throw "theme source not found: $src" }
-if (-not (Test-Path $FoobarProfile)) { throw "foobar profile not found: $FoobarProfile" }
+# Find the profile rather than hardcoding one: this script is public, and one developer's
+# folder layout is both useless to everyone else and nobody else's business.
+#   1. -FoobarProfile
+#   2. $env:VERDANT_PROFILE   (set this once and forget it)
+#   3. a portable install found via the registry
+#   4. %APPDATA%\foobar2000
+if (-not $FoobarProfile) { $FoobarProfile = $env:VERDANT_PROFILE }
+if (-not $FoobarProfile) {
+    foreach ($key in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\foobar2000',
+                     'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\foobar2000') {
+        try {
+            $loc = (Get-ItemProperty -Path $key -ErrorAction Stop).InstallLocation
+            if ($loc -and (Test-Path (Join-Path $loc 'portable_mode_enabled'))) {
+                $FoobarProfile = Join-Path $loc 'profile'; break
+            }
+        } catch { }
+    }
+}
+if (-not $FoobarProfile) {
+    $appdata = Join-Path $env:APPDATA 'foobar2000'
+    if (Test-Path $appdata) { $FoobarProfile = $appdata }
+}
+if (-not $FoobarProfile -or -not (Test-Path $FoobarProfile)) {
+    throw ("couldn't find a foobar2000 profile. Pass one:`n" +
+           "    .\tools\deploy.ps1 -FoobarProfile 'D:\foobar2000\profile'`n" +
+           "  or set it once:`n" +
+           "    setx VERDANT_PROFILE D:\foobar2000\profile")
+}
+
+$dest = Join-Path $FoobarProfile 'verdant'
 
 function Sync-Theme {
     # /MIR so a module deleted here also disappears from the profile -- a stale .js left behind

@@ -1,9 +1,27 @@
 # OS / editor cruft
 Thumbs.db
 Desktop.ini
+.DS_Store
 .vscode/
 .idea/
 *.log
+*~
+*.bak
+*.tmp
 
 # build output -- rebuild with tools\make-release.ps1
 dist/
+*.zip
+
+# never commit a real foobar2000 profile. dist-config\ holds the small, audited
+# configuration harvested from a clean-room install; a live profile would carry
+# the media library, playlists, scrobbler credentials and absolute paths.
+profile/
+verdant-backup/
+config.sqlite
+metadb.sqlite
+!dist-config/config.sqlite
+
+# scratch space
+scratch/
+tmp/

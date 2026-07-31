@@ -201,8 +201,12 @@ The whole theme runs on **one thread shared with the UI**, which is why the code
 slices long builds across timer ticks, and scopes repaints to the one panel that changed.
 
 ```powershell
-.\tools\deploy.ps1 -Watch     # mirrors theme\verdant into the profile on every save
+setx VERDANT_PROFILE D:\foobar2000\profile     # once, so deploy knows where to put it
+.\tools\deploy.ps1 -Watch                      # mirrors theme\verdant into the profile on every save
 ```
+
+`deploy.ps1` auto-detects a standard install; for a portable one, set `VERDANT_PROFILE` as above or
+pass `-FoobarProfile`.
 
 Then reload the panel (right-click → Reload). `console.log` goes to foobar's console (View → Console).
 Deploy copies the same folder to the same place the installer does, so there's no separate build and
