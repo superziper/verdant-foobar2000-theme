@@ -1,0 +1,12 @@
+# Normalise line endings for source, but keep foobar's binary artifacts byte-exact.
+* text=auto
+
+# These are binary blobs that get shipped and applied verbatim by the installer.
+# Any line-ending conversion would silently corrupt them: a mangled
+# foo_ui_columns.dll.cfg is an unreadable layout, and a mangled config.sqlite is
+# an unreadable database.
+*.cfg    binary
+*.fcl    binary
+*.sqlite binary
+*.dll    binary
+*.exe    binary

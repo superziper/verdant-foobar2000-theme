@@ -1,9 +1,10 @@
-# Spotify for foobar2000
+# Verdant
 
-A Spotify-styled skin for foobar2000, drawn from scratch in a **JSplitter** panel
-(`foo_uie_jsplitter` — SpiderMonkey + GDI+). It restyles your **local** library
-and playlists; it does not connect to Spotify's service and plays nothing you
-don't already own.
+**A modern Spotify-style theme for foobar2000.**
+
+Drawn from scratch in a **JSplitter** panel (`foo_uie_jsplitter` — SpiderMonkey +
+GDI+). It restyles your **local** library and playlists; it does not connect to
+Spotify's service and plays nothing you don't already own.
 
 Everything on screen is custom-drawn — sidebar, home, playlist and All Songs
 views, search, queue/lyrics pane, player bar, fullscreen mode, and the window
@@ -47,35 +48,66 @@ title bar. No stock foobar widgets are involved.
 
 ## Install
 
-1. **Switch foobar to Columns UI.**
-   Preferences → **Display** → set the interface to **Columns UI** (restart if
-   prompted).
+Download the latest **`Verdant-vX.Y.Z.zip`** from
+[Releases](../../releases), then:
 
-2. **Add a full-window JSplitter panel.**
-   Preferences → **Display → Columns UI → Layout**. Replace the main content
-   with a **JSplitter** panel (right-click → Insert/Replace → Panels →
-   *JSplitter*). Apply.
+1. **Close foobar2000.**
+2. Extract the zip anywhere and **double-click `install.bat`**.
+3. **Start foobar2000.**
 
-3. **Load the script.**
-   Right-click the panel → **Configure**. Select all, delete, paste the entire
-   contents of [`src/main.js`](src/main.js). Apply/OK.
+The installer finds your foobar (portable or standard), installs the theme, adds
+only the components you're missing, and applies the layout. It backs up anything
+it replaces and writes an `uninstall.ps1` next to the backup.
 
-That's it — the skin picks up your existing playlists and Media Library.
+**It won't overwrite anything that already exists except its own theme folder.**
+Your library, playlists, output device, DSPs and component settings are left
+alone. If you already run Columns UI, only the panel *layout* is replaced —
+colours, fonts, playlist columns and filters all survive, because that path uses
+Columns UI's own layout import rather than replacing its config file.
+
+<details>
+<summary><b>Install by hand (no scripts)</b></summary>
+
+1. Close foobar2000.
+2. Copy the contents of the zip's `profile\` into your profile folder — the
+   `profile` folder next to `foobar2000.exe` (portable), or `%APPDATA%\foobar2000`
+   (standard). This only *adds* files; it cannot overwrite your settings.
+3. Start foobar2000, then:
+   - Preferences → **Display** → set the interface to **Columns UI** (restart if asked)
+   - Preferences → Display → Columns UI → **Layout**: right-click the top node →
+     **Remove root panel**; right-click the empty root → **Add panel** →
+     **Splitters** → **JSplitter**; Apply
+   - Right-click the panel → **Configure** → *Script source*: **File** → `verdant\main.js`
+
+Everything in the zip's `extras\` folder is for the installer — those files
+*replace* configuration rather than add to it, so don't copy them in by hand.
+</details>
 
 > **Empty library?** The Home and All Songs views read foobar's Media Library,
-> not your playlists. Add a music folder under Preferences → **Media Library**
-> if those look bare.
+> not your playlists. On a new foobar that library is empty, so add a music folder
+> under Preferences → **Media Library**. That's expected, not a broken install.
+
+### Uninstall
+
+Run `uninstall.ps1` from the backup folder the installer printed
+(`<profile>\verdant-backup\<date>\`), then delete `<profile>\verdant\`.
 
 ---
 
 ## Tuning
 
-Two knobs near the top of [`src/main.js`](src/main.js):
+Right-click the panel → **Properties**:
 
-| Setting | Default | What it does |
+| Property | Default | What it does |
 |---|---|---|
-| `UISCALE` | `1.25` | Scales every font. Raise for high-DPI screens, lower toward `1.0` for a compact look. |
-| `M.navW` / `M.queueW` | `230` / `400` | Sidebar and queue-pane widths, in pixels. |
+| `Display: UI scale (0 = auto)` | `0` | Scales every font and the title bar. `0` follows your display scaling; set `1.0` for compact, higher for a large or 4K screen. |
+| `Scrolling: wheel step (px)` | `180` | How far one wheel notch scrolls the lists. |
+
+Both are read when the panel loads, so **reload the panel** (right-click →
+Reload) after changing them.
+
+Sidebar and queue-pane widths are still code: `M.navW` / `M.queueW` in
+[`theme/verdant/core/tokens.js`](theme/verdant/core/tokens.js).
 
 Lyrics are read from a `.lrc` (synced) or `.txt` (plain) file sitting next to the
 audio file with the same name.
@@ -121,38 +153,51 @@ from files* on your library.
 
 ## Dev loop
 
-Rather than re-pasting on every change:
-
 ```powershell
-.\deploy.ps1 -Watch     # copies src\ into the foobar profile on every save
+.\tools\deploy.ps1 -Watch     # mirrors theme\verdant into the profile on every save
 ```
 
-Then set the panel's script to the one line in
-[`bootstrap.txt`](bootstrap.txt) (it `include()`s the deployed `main.js`), edit
-`src\main.js`, and **reload the panel** (right-click → Reload). No foobar restart
-needed. `console.log` output appears in foobar's Console (View → Console).
+Edit under `theme\verdant\`, then **reload the panel** (right-click → Reload). No
+foobar restart needed. `console.log` output appears in foobar's Console (View →
+Console). Deploy copies the same folder to the same place the installer will, so
+there is no separate build and no second code path.
 
-For a portable foobar install, point the script at your profile folder:
-`.\deploy.ps1 -Watch -FoobarProfile 'D:\foobar2000\profile'`.
+For a different profile: `.\tools\deploy.ps1 -Watch -FoobarProfile 'D:\foobar2000\profile'`.
 
 ---
 
 ## Layout
 
 ```
-src/main.js     the skin (single self-contained JSplitter script)
-bootstrap.txt   one-line include() for the dev loop
-deploy.ps1      copies src\ into the foobar profile ( -Watch to auto-sync )
+theme/verdant/        the theme — copied verbatim into <profile>\verdant\
+  main.js             entry point: declares the panel, sets the module load order
+  core/               props, tokens, utils, title formats, memory caps, job scheduler
+  data/               art, library, playback, lyrics, replaygain, dedupe, playlist edit
+  ui/                 skeletons + shimmer, window chrome and shared widgets
+  views/              nav, playlist, home, artist, songs, search, queue, bar, fullscreen
+  app.js              panel state, layout, paint dispatch, input, foobar callbacks
+components/           the three foobar components, bundled for the installer
+dist-config/          layout + core config harvested from a clean-room foobar
+tools/
+  deploy.ps1          dev sync into the foobar profile ( -Watch to auto-sync )
+  install.ps1/.bat    the shipped installer
+  harvest.ps1         pull configuration out of the clean-room rig
+  make-release.ps1    build Verdant-vX.Y.Z.zip
 ```
 
-The single file is deliberate: a JSplitter panel takes one script, and the whole
-skin runs on one thread shared with the UI — which is why the code caches
-aggressively, slices long builds across timer ticks, and scopes repaints to the
-one panel that changed.
+Every module is evaluated into **one shared global scope**, so a module can call
+into any other; `main.js` fixes the order because a few things are computed at
+load time (fonts from `UISCALE`, the reveal-gate ceiling from `ART_CAP`).
+
+The whole theme runs on one thread shared with the UI — which is why the code
+caches aggressively, slices long builds across timer ticks, and scopes repaints
+to the one panel that changed.
 
 ---
 
 ## Notes
+
+By **superziper**.
 
 Not affiliated with or endorsed by Spotify. "Spotify" is a trademark of Spotify
 AB; this is a fan-made visual theme for a local music player.

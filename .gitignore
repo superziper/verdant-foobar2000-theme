@@ -4,3 +4,6 @@ Desktop.ini
 .vscode/
 .idea/
 *.log
+
+# build output -- rebuild with tools\make-release.ps1
+dist/
