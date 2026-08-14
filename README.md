@@ -37,20 +37,20 @@ look, not a client.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/playlist.png" alt="Playlist view"><br><sub><b>Playlist</b> — header tinted from the cover art, sortable tracks, live now-playing row</sub></td>
-<td width="50%"><img src="docs/images/all-songs.png" alt="All Songs view"><br><sub><b>All Songs</b> — the whole library in one list, grouped by artist &amp; album, with the normalize-volume pill</sub></td>
+<td width="50%"><img src="docs/images/playlist.png" alt="Playlist view"><br><sub><b>Playlist</b></sub></td>
+<td width="50%"><img src="docs/images/all-songs.png" alt="All Songs view"><br><sub><b>All Songs</b></sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/search.png" alt="Search"><br><sub><b>Search</b> — instant results across artists and tracks as you type</sub></td>
-<td><img src="docs/images/artist.png" alt="Artist page"><br><sub><b>Artist</b> — every album you own by them, in release order</sub></td>
+<td><img src="docs/images/search.png" alt="Search"><br><sub><b>Search</b></sub></td>
+<td><img src="docs/images/artist.png" alt="Artist page"><br><sub><b>Artist</b></sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/fullscreen.png" alt="Fullscreen now playing"><br><sub><b>Fullscreen</b> — big art, nothing else in the way</sub></td>
-<td><img src="docs/images/fullscreen-lyrics.png" alt="Fullscreen synced lyrics"><br><sub><b>Lyrics</b> — synced <code>.lrc</code> rolling with the track</sub></td>
+<td><img src="docs/images/fullscreen.png" alt="Fullscreen now playing"><br><sub><b>Fullscreen</b></sub></td>
+<td><img src="docs/images/fullscreen-lyrics.png" alt="Fullscreen synced lyrics"><br><sub><b>Lyrics</b></sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/fullscreen-visualizer.png" alt="Fullscreen visualizer"><br><sub><b>Visualizer</b> — four styles, fed from real PCM via FFT</sub></td>
-<td><img src="docs/images/playlist-empty-rename.png" alt="Empty playlist and rename dialog"><br><sub><b>Playlist editing</b> — themed dialogs, drag-and-drop import, lyrics in the side pane</sub></td>
+<td><img src="docs/images/fullscreen-visualizer.png" alt="Fullscreen visualizer"><br><sub><b>Visualizer</b></sub></td>
+<td><img src="docs/images/playlist-empty-rename.png" alt="Empty playlist and rename dialog"><br><sub><b>Editing</b></sub></td>
 </tr>
 </table>
 
