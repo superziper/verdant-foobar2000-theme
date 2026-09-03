@@ -12,7 +12,7 @@ function drawPlaylist(gr,r){
     if(metaOk || skelVisible('meta'+p.i)) drawViewSkeleton(gr,r);
     return;
   }
-  gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(firstHandle(p.i),p.name),COL.base,0.42),COL.base,1.0);
+  gr.FillGradRect(r.x,r.y,r.w,M.headH,90,blend(artHue(plChoice(p.i).single,p.name),COL.base,0.42),COL.base,1.0);
   var ax=r.x+M.cpad, ay=r.y+44, art=M.artSz;
   drawPlCover(gr,ax,ay,art,8,p.i,p.name);
   // sort pill + asc/desc button, right-aligned like the All Songs group pill; header text

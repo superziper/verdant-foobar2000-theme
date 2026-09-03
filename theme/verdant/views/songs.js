@@ -10,7 +10,7 @@ function drawSongs(gr,r){
     if(songsOk || skelVisible('songs')) drawViewSkeleton(gr,r);
     return;
   }
-  var cov=libCovers(), g=songsGroup;
+  var cov=libChoice(), g=songsGroup;
   // header: gradient wash + mosaic cover + title/meta, mirroring the playlist header
   gr.FillGradRect(r.x,r.y,r.w,SHEAD,90,blend(artHue(cov.single,'__lib__'),COL.base,0.42),COL.base,1.0);
   var rx=r.x+r.w-M.cpad, lx=r.x+M.cpad, ay=r.y+44, art=M.artSz;
@@ -105,7 +105,7 @@ function drawSongs(gr,r){
       var hHov=isArt && hb1>hb0 && hv(lx-8,hb0,rx+8,hb1);
       if(banner) gr.FillRoundRect(lx-8,blockTop,rx-lx+16,blockH,8,8,hHov?COL.hover:RGB(34,34,34));
       else if(hHov) gr.FillRoundRect(lx-8,blockTop-4,rx-lx+16,blockH+8,6,6,COL.rowHover);
-      if(isArt) drawCircle(gr,hx,hy,acs,artistCover(row.label,row.handle),row.label);
+      if(isArt) drawCircle(gr,hx,hy,acs,rowCover(row),row.label);
       else drawRounded(gr,hx,hy,acs,5,row.handle,row.seed);
       // text block centred against the artwork, running to the same right edge as the rows
       var htx=hx+acs+SG_TGAP, htw=rx-htx;

@@ -49,7 +49,8 @@ function artCardImg(a,w){
   var key=a.name+'|'+w, e=artCardCache[key];
   if(e){ e.t=++artTick; return e.img; }
   var ah=artistCover(a.name,a.handle);
-  if(ah && !artLoaded(albKey(ah))) return null;      // art still loading -> don't bake a placeholder
+  if(!artistCoverReady(a.name,a.handle)) return null;   // still choosing a cover -> don't bake a placeholder
+  if(ah && !artLoaded(albKey(ah))) return null;         // art still loading -> same
   if(artCardN>=ART_CARD_CAP) evictArtCards();
   var im=null;
   try{

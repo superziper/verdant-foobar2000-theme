@@ -33,7 +33,7 @@ function libTF(field){
 }
 
 /* ------------------------- library-backed artist list ------------------------- */
-var artistList=null, artistTracksMap=null, artistCoverCache={};
+var artistList=null, artistTracksMap=null, artistCandCache={};
 function getArtistList(){
   if(artistList) return artistList;
   var lib=libItems();
@@ -50,13 +50,32 @@ function getArtistList(){
   }
   artistList=out; return out;
 }
-// artist avatar = the artist's first track (optimistic; art loads async, placeholder if none)
-function artistCover(name,fallback){
-  if(artistCoverCache.hasOwnProperty(name)) return artistCoverCache[name];
-  var list=artistTracksMap?artistTracksMap[name]:null;
-  var h=(list && list.length)?list[0]:fallback;
-  artistCoverCache[name]=h; return h;
+/* artist avatar = the first of the artist's albums that actually HAS art, not simply their first
+   track -- one untagged opener used to leave the whole artist on a placeholder. The candidates are
+   one track per album (scan capped like plCovers, since a prolific artist's list can be long);
+   coverPick settles on the first with art as they resolve, and the fallback stands in meanwhile. */
+var ARTIST_CAND_SCAN=24;                 // albKey() is an interop call: bound the scan, cache the result
+function artistCands(name,fallback){
+  if(artistCandCache.hasOwnProperty(name)) return artistCandCache[name];
+  var list=artistTracksMap?artistTracksMap[name]:null, out=[], seen={}, i, h, k;
+  if(!list) return fallback?[fallback]:[];   // map not built yet -> guess, but don't cache the guess
+  var cap=Math.min(list.length,ARTIST_CAND_SCAN);
+  for(i=0;i<cap && out.length<COVER_CANDS;i++){
+    h=list[i]; if(!h) continue; k=albKey(h); if(seen[k]) continue;
+    seen[k]=1; out.push(h);
+  }
+  if(!out.length && fallback) out.push(fallback);
+  artistCandCache[name]=out; return out;
 }
+// the bulk warm pass's cheap guess -- no candidate scan, no album dedupe
+function artistFirst(name,fallback){ var l=artistTracksMap?artistTracksMap[name]:null; return (l&&l.length)?l[0]:fallback; }
+function artistCover(name,fallback){
+  var c=artistCands(name,fallback), p=coverPick('ar|'+name,c,1);
+  if(p.list.length) return p.list[0];
+  return c.length?c[0]:(fallback||null);          // still choosing -> the old first-track guess
+}
+// false while the scan can still move the choice: baking a card now would freeze its placeholder
+function artistCoverReady(name,fallback){ return coverPick('ar|'+name,artistCands(name,fallback),1).done; }
 function loadArtist(name){
   viewArtist=name; artScroll=0; artistAlbums=[];
   var lib=libItems();
@@ -141,14 +160,16 @@ function buildSongsRows(){
   for(i=0;i<idx.length;i++){
     var t=idx[i];
     if(g==='artist'){
-      if(t.aartist!==curA){ curA=t.aartist; n=0; ref1={k:'g1',kind:'artist',label:t.aartist,sub:'',h:h1,handle:t.h,seed:t.aartist,count:0,albums:0}; rows.push(ref1); }
+      if(t.aartist!==curA){ curA=t.aartist; n=0; ref1={k:'g1',kind:'artist',label:t.aartist,sub:'',h:h1,handle:t.h,seed:t.aartist,count:0,albums:0,cands:[],ckey:''}; rows.push(ref1); }
     } else if(g==='album'){
       if(t.artkey!==curAl){ curAl=t.artkey; n=0; ref1={k:'g1',kind:'album',label:t.album,sub:t.aartist+(t.year?(' '+CH_DOT+' '+t.year):''),h:h1,handle:t.h,seed:t.artkey,count:0,albums:0}; rows.push(ref1); }
     } else if(g==='both'){
-      if(t.aartist!==curA){ curA=t.aartist; curAl=null; ref2=null; ref1={k:'g1',kind:'artist',label:t.aartist,sub:'',h:h1,handle:t.h,seed:t.aartist,count:0,albums:0}; rows.push(ref1); }
+      if(t.aartist!==curA){ curA=t.aartist; curAl=null; ref2=null; ref1={k:'g1',kind:'artist',label:t.aartist,sub:'',h:h1,handle:t.h,seed:t.aartist,count:0,albums:0,cands:[],ckey:''}; rows.push(ref1); }
       if(t.artkey!==curAl){ curAl=t.artkey; n=0; ref2={k:'g2',kind:'album',label:t.album,sub:t.year||'',h:SG_H2,handle:t.h,seed:t.artkey,count:0}; rows.push(ref2); if(ref1) ref1.albums++; }
     }
     n++; tracks.push(t);
+    // one candidate per album for the artist header's avatar -- the first with art wins (rowCover)
+    if(ref1 && ref1.cands && ref1.ckey!==t.artkey && ref1.cands.length<COVER_CANDS){ ref1.ckey=t.artkey; ref1.cands.push(t.h); }
     rows.push({k:'t',t:t,n:(g==='none'?tracks.length:n),ti:tracks.length-1,h:trH});
     if(ref1) ref1.count++;
     if(ref2) ref2.count++;
@@ -214,7 +235,7 @@ function metaReady(pi){ return !!plMetaMap[pi]; }
 
 // jobs={} cancels any build in flight: jobStep finds no entry for its key and simply stops, so a
 // job that started against the old data can never publish it
-function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; qMetaCache={}; visPlCache=null; warmJob=null; jobs={}; gates={}; rowGate={}; shelfHandles=null; }
+function invalidateItems(){ plCacheMap={}; plMetaMap={}; plCoverCache={}; coverPickCache={}; mosaicCache={}; warmed={}; plOrderMap={}; plNameCache={}; plCountCache={}; plCardCache={}; qMetaCache={}; visPlCache=null; warmJob=null; jobs={}; gates={}; rowGate={}; shelfHandles=null; }
 
 /* ---- Playlist view sort: only reorders how rows are DISPLAYED. Native item indices (playback,
    row menu, drag targets) are untouched, so order[displayRow] maps to the real item index. */

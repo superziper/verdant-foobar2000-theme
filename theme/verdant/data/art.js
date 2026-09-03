@@ -90,8 +90,8 @@ function warmStep(){
   if(!warmJob) return;
   var j=warmJob, n=0, h;
   while(n<WARM_SLICE && j.ai<j.arts.length){
-    h=artistCover(j.arts[j.ai].name,j.arts[j.ai].handle);
-    if(h) requestArt(h,albKey(h),true);
+    h=artistFirst(j.arts[j.ai].name,j.arts[j.ai].handle);   // NOT artistCover: choosing a cover is
+    if(h) requestArt(h,albKey(h),true);                     // on-demand work at on-screen priority
     j.ai++; n++;
   }
   while(n<WARM_SLICE && j.pi<j.pls.length){
@@ -102,6 +102,42 @@ function warmStep(){
   if(j.ai>=j.arts.length && j.pi>=j.pls.length){ warmJob=null; return; }
   window.SetTimeout(warmStep,30);
 }
+/* ---- cover choice: the first candidate that actually HAS art ----------------
+   An artist's or a playlist's cover used to be simply its first track, so one untagged opener left
+   the card on a flat placeholder even when every other album in the set had artwork. These pick
+   the first candidate whose art resolves to a real image, and only fall back to the placeholder
+   colour when nothing in the set has any.
+   Art is async, so the scan resolves progressively: it walks the candidates in order and stops at
+   the first one not yet loaded -- requesting it, plus a short lookahead so the next round is
+   already in flight -- which is what keeps the choice from ever moving backwards. The answer is
+   cached once it can no longer change; an unsettled scan is cheap, but it does run per paint. */
+var COVER_CANDS=10, COVER_LOOKAHEAD=2, coverPickCache={};
+function coverPick(key,cands,want){
+  if(coverPickCache.hasOwnProperty(key)) return coverPickCache[key];
+  var out=[], done=true, i, j, h, k;
+  if(cands) for(i=0;i<cands.length && out.length<want;i++){
+    h=cands[i]; if(!h) continue;
+    k=albKey(h);
+    if(!artLoaded(k)){
+      requestArt(h,k);                                   // wanted on screen now: ahead of bulk warm-up
+      for(j=1;j<=COVER_LOOKAHEAD && i+j<cands.length;j++) if(cands[i+j]) requestArt(cands[i+j],albKey(cands[i+j]),true);
+      done=false; break;
+    }
+    if(artCache[k]) out.push(h);
+  }
+  var res={list:out, done:done};
+  if(done && cands && cands.length) coverPickCache[key]=res;   // empty = data not built yet, retry
+  return res;
+}
+/* What a multi-track cover (playlist, All Songs) actually draws: the 2x2 mosaic once four
+   candidates have art, else the first single cover there is. While the scan is unsettled it holds
+   the old first-track cover, so nothing flickers between two real covers. */
+function coverChoice(key,cov){
+  var p=coverPick(key,cov.cands,4);
+  if(!p.done) return {wait:true, list:[], single:cov.single};
+  if(p.list.length>=4) return {wait:false, list:p.list, single:p.list[0]};
+  return {wait:false, list:[], single:p.list.length?p.list[0]:cov.single};
+}
 function getThumb(h,key,size){
   var img=getArtK(h,key);
   if(!artLoaded(key)) return null;             // still loading -> placeholder, don't cache
@@ -110,8 +146,12 @@ function getThumb(h,key,size){
   var r=null; if(img){ try{ r=img.Resize(size,size,2); }catch(e){ r=null; } }
   capPut(thumbCache,thumbOrder,THUMB_CAP,tk,r); return r;
 }
-function firstHandle(pi){ var it=getItems(pi); return (it&&it.Count>0)?it[0]:null; }
 
+// All Songs group header: rows carry their own candidates (built with the rows, free of interop)
+function rowCover(row){
+  var p=coverPick('sg|'+row.seed,row.cands,1);
+  return p.list.length?p.list[0]:row.handle;
+}
 function drawCover(gr,x,y,sz,rad,h,seed,key){
   var img=h?getThumb(h,key||albKey(h),sz):null;
   if(img){ gr.DrawImage(img,x,y,sz,sz,0,0,img.Width,img.Height,0,255); }
@@ -164,21 +204,25 @@ function drawRounded(gr,x,y,size,rad,h,seed){
   if(ri) gr.DrawImage(ri,x,y,size,size,0,0,ri.Width,ri.Height,0,255);
   else gr.FillRoundRect(x,y,size,size,rad,rad,coverCol(seed));
 }
-/* playlist cover: first up-to-4 DISTINCT albums -> 2x2 mosaic, else a single cover */
+/* playlist cover: up to COVER_CANDS DISTINCT albums to choose from -- four of them WITH art make
+   the 2x2 mosaic, otherwise the first one with art is shown alone. list/single stay what they
+   always were (the first four, the first one), because the reveal gates wait on those: a section
+   reveals as soon as its opening covers are in and coverPick refines the choice after. */
 var plCoverCache={}, mosaicCache={};
 function plCovers(pi){
   if(plCoverCache.hasOwnProperty(pi)) return plCoverCache[pi];
-  var it=getItems(pi), res={list:[], single:null};
+  var it=getItems(pi), res={list:[], single:null, cands:[]};
   if(it && it.Count){
     var seenAlb={}, cap=Math.min(it.Count,60);
-    for(var i=0;i<cap && res.list.length<4;i++){
+    for(var i=0;i<cap && res.cands.length<COVER_CANDS;i++){
       var h=it[i]; if(!h) continue; var k=albKey(h); if(seenAlb[k]) continue;
-      seenAlb[k]=1; res.list.push(h); if(!res.single) res.single=h;
+      seenAlb[k]=1; res.cands.push(h); if(res.list.length<4) res.list.push(h);
     }
-    if(!res.single) res.single=it[0];
+    res.single=res.cands.length?res.cands[0]:it[0];
   }
   plCoverCache[pi]=res; return res;
 }
+function plChoice(pi){ return coverChoice('pl|'+pi,plCovers(pi)); }
 function mosaicImg(handles,seed,size,rad){
   var key=(seed||'')+'|'+size+'|m'+rad;
   if(mosaicCache.hasOwnProperty(key)) return mosaicCache[key];
@@ -202,9 +246,9 @@ function mosaicImg(handles,seed,size,rad){
   mosaicCache[key]=res; return res;
 }
 function drawPlCover(gr,x,y,size,rad,pi,seed){
-  var cov=plCovers(pi);
-  if(cov.list.length>=4){ var mi=mosaicImg(cov.list,seed,size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
-  drawRounded(gr,x,y,size,rad,cov.single,seed);
+  var c=plChoice(pi);
+  if(c.list.length>=4){ var mi=mosaicImg(c.list,seed,size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
+  drawRounded(gr,x,y,size,rad,c.single,seed);
 }
 /* Playlist cards are identical between playlist changes, so each is rendered once into a bitmap
    and blitted thereafter -- that removes the rounded rects, cover blits and text layout from
@@ -214,12 +258,10 @@ function drawPlCover(gr,x,y,size,rad,pi,seed){
    maskedArt and mosaicImg use, without which a card would keep its placeholder forever. */
 var plCardCache={};
 function plCoverReady(pi){
-  var cov=plCovers(pi), i, h;
-  if(cov.list.length>=4){
-    for(i=0;i<4;i++){ h=cov.list[i]; if(h && !artLoaded(albKey(h))) return false; }
-    return true;
-  }
-  h=cov.single; return !h || artLoaded(albKey(h));
+  var c=plChoice(pi), i, h;
+  if(c.wait) return false;                  // still choosing -> a baked card would keep the placeholder
+  for(i=0;i<c.list.length;i++){ h=c.list[i]; if(h && !artLoaded(albKey(h))) return false; }
+  h=c.single; return !h || artLoaded(albKey(h));
 }
 function paintPlCard(gr,x,y,w,pi,hov){
   gr.FillRoundRect(x,y,w,w+56,8,8,hov?RGB(40,40,40):COL.elev);
@@ -245,25 +287,27 @@ function plCardImg(pi,w){
   if(!plCoverReady(pi)) return null;        // not cached yet -> retried next frame
   plCardCache[key]=renderPlCard(pi,w,false); return plCardCache[key];
 }
-/* "All Songs" cover: 4 distinct albums sampled ACROSS the library, not just the first few */
+/* "All Songs" cover: distinct albums sampled ACROSS the library, not just the first few; the four
+   drawn are the first of them that have art (see coverChoice) */
 var libCovCache=null, libCount_=-1;
 function libCount(){ if(libCount_<0){ var l=libItems(); libCount_=l?l.Count:0; } return libCount_; }
 function libCovers(){
   if(libCovCache) return libCovCache;
   var lib=libItems();
-  var res={list:[], single:null};
+  var res={list:[], single:null, cands:[]};
   if(lib && lib.Count){
     var seen={}, step=Math.max(1,Math.floor(lib.Count/400));
-    for(var i=0;i<lib.Count && res.list.length<4;i+=step){
+    for(var i=0;i<lib.Count && res.cands.length<COVER_CANDS;i+=step){
       var h=lib[i]; if(!h) continue; var k=albKey(h); if(seen[k]) continue;
-      seen[k]=1; res.list.push(h); if(!res.single) res.single=h;
+      seen[k]=1; res.cands.push(h); if(res.list.length<4) res.list.push(h);
     }
-    if(!res.single) res.single=lib[0];
+    res.single=res.cands.length?res.cands[0]:lib[0];
   }
   libCovCache=res; return res;
 }
+function libChoice(){ return coverChoice('__lib__',libCovers()); }
 function drawLibCover(gr,x,y,size,rad){
-  var cov=libCovers();
-  if(cov.list.length>=4){ var mi=mosaicImg(cov.list,'__lib__',size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
-  drawRounded(gr,x,y,size,rad,cov.single,'__lib__');
+  var c=libChoice();
+  if(c.list.length>=4){ var mi=mosaicImg(c.list,'__lib__',size,rad); if(mi){ gr.DrawImage(mi,x,y,size,size,0,0,mi.Width,mi.Height,0,255); return; } }
+  drawRounded(gr,x,y,size,rad,c.single,'__lib__');
 }

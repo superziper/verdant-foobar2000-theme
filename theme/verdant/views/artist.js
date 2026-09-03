@@ -5,7 +5,11 @@
 function drawArtist(gr,r){
   HB_TR=[];
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, bottom=r.y+r.h-12, i;
-  var cover=artistAlbums.length?artistAlbums[0].handle:null;   // optimistic (art loads async)
+  // header artwork = the artist's first album that actually HAS art. artistAlbums is already one
+  // entry per album, so it is the candidate list directly -- no scan, no dedupe (art loads async)
+  var cands=[]; for(i=0;i<artistAlbums.length && i<COVER_CANDS;i++) if(artistAlbums[i].handle) cands.push(artistAlbums[i].handle);
+  var picked=coverPick('av|'+viewArtist,cands,1);
+  var cover=picked.list.length?picked.list[0]:(cands.length?cands[0]:null);
   gr.FillGradRect(r.x,r.y,r.w,220,90,blend(artHue(cover,viewArtist),COL.base,0.44),COL.base,1.0);
   var art=150, ay=r.y+34;
   drawCircle(gr,x0,ay,art,cover,viewArtist);
