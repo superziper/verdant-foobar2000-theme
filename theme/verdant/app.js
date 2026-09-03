@@ -536,4 +536,5 @@ function on_item_focus_change(){ repaintAll(); }
 layout();
 updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
+capVolume();       // pull a remembered volume back under the slider's ceiling
 startMemWatch();   // caches grow into the component's spare memory and back off as it fills
