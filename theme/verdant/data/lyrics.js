@@ -5,6 +5,7 @@
 /* ------------------------- lyrics (.lrc / .txt beside the track) ------------------------- */
 var lyricsFor=null, lyrics=null; // {lines:[{t,text}],synced} | 'none'
 var lyScroll=0, lyTarget=0, lyCur=0, lyTimer=null, lySnap=true, lyLay={lyr:null,w:-1};   // pixel roll: lines wrap
+var lyStScroll=0, lyStMax=0;   // unsynced lyrics: wheel-driven offset + its clamp, both in pixels
 function currentLyricLine(){
   if(!lyrics || lyrics==='none' || !lyrics.synced) return 0;
   var pt=fb.PlaybackTime, c=0;
@@ -42,16 +43,38 @@ function drawRollingLyrics(gr,x,top,w,bot,font,curCol,align){
     for(s=0;s<parts.length;s++){ if(align==='l') tL(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); else tC(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); }
   }
 }
-// unsynced lyrics: plain top-down block, no roll
-function drawStaticLyrics(gr,x,w,yy,bot,font,gapMul){
+/* Unsynced lyrics: a plain top-down block, no roll -- there are no timestamps to roll to. Anything
+   past the bottom of the pane used to be simply unreachable, so the block scrolls on the wheel
+   instead (lyStWheel). There is no clip API, so a line is drawn only when it fits ENTIRELY within
+   the view: a half-line would otherwise spill over the tab strip above or the controls below.
+   The cost is up to one line-height of slack at each edge, which reads as padding. */
+function drawStaticLyrics(gr,x,w,top,bot,font,gapMul){
   stopLyAnim();
-  var L=lyLayout(gr,w,font), li, s;
-  for(li=0;li<lyrics.lines.length;li++){
+  var L=lyLayout(gr,w,font), gap=Math.round(L.subLh*gapMul), li, s, h=0;
+  for(li=0;li<lyrics.lines.length;li++) h+=L.subs[li].length*L.subLh+gap;
+  lyStMax=Math.max(0,Math.round(h-gap-(bot-top)));   // the trailing gap is not content to scroll to
+  if(lyStScroll>lyStMax) lyStScroll=lyStMax;
+  if(lyStScroll<0) lyStScroll=0;
+  var y=top-lyStScroll;
+  for(li=0;li<lyrics.lines.length && y<bot;li++){
     var p=L.subs[li];
-    for(s=0;s<p.length && yy+L.subLh<=bot; s++){ tC(gr,p[s],font,COL.text2,x,yy,w,L.subLh); yy+=L.subLh; }
-    yy+=Math.round(L.subLh*gapMul);
-    if(yy>=bot) break;
+    for(s=0;s<p.length;s++){
+      if(y>=top && y+L.subLh<=bot) tC(gr,p[s],font,COL.text2,x,y,w,L.subLh);
+      y+=L.subLh;
+    }
+    y+=gap;
   }
+}
+/* Wheel handling for that block, shared by the right pane and fullscreen. Returns false when there
+   is nothing to scroll -- synced lyrics roll themselves, and in fullscreen the wheel is the volume
+   control, which it must stay whenever the lyrics cannot use it. lyStMax is set by the draw above,
+   so this is a no-op until the pane has been painted once. */
+function lyStWheel(step){
+  if(noLyrics() || lyrics.synced || lyStMax<=0) return false;
+  var v=lyStScroll-Math.round(step*3*(lyLay.subLh||20));
+  if(v<0) v=0; else if(v>lyStMax) v=lyStMax;
+  if(v===lyStScroll) return false;
+  lyStScroll=v; return true;
 }
 function noLyrics(){ return !lyrics || lyrics==='none' || !lyrics.lines || !lyrics.lines.length; }
 function lyTick(){
@@ -90,7 +113,8 @@ function parseLyrics(text){
 function loadLyrics(){
   var key=NP?NP.Path:null;
   if(key===lyricsFor) return;
-  lyricsFor=key; lyrics='none'; lyScroll=0; lyTarget=0; lySnap=true; lyLay={lyr:null,w:-1};
+  lyricsFor=key; lyrics='none'; lyScroll=0; lyTarget=0; lySnap=true; lyLay={lyr:null,w:-1};
+  lyStScroll=0; lyStMax=0;   // a new track's lyrics start at the top
   if(!key) return;
   var base=key.replace(/\.[^.\\\/]+$/,'');
   var text=readFirst([base+'.lrc', base+'.txt']);

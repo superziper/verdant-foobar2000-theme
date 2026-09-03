@@ -420,7 +420,18 @@ function on_char(code){
   searchScroll=searchScrollT=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
 }
 function on_mouse_wheel(step){
-  if(fsMode){ fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return; }
+  if(fsMode){
+    // lyrics with no timestamps don't roll themselves, so here the wheel scrolls them; with nothing
+    // to scroll (synced, short enough to fit, or another view) it stays the volume control
+    if(fsView==='lyrics' && lyStWheel(step)){ repaintAll(); return; }
+    fb.Volume=pos2vol(clamp01(vol2pos(fb.Volume)+step*0.04)); repaintAll(); return;
+  }
+  // right pane: same deal on the Lyrics tab. Consume the wheel either way -- it belongs to this
+  // panel, and falling through would scroll the playlist behind the pointer.
+  if(R.queue && rightTab==='lyrics' && mx>=R.queue.x && mx<R.queue.x+R.queue.w && my>=R.queue.y && my<R.queue.y+R.queue.h){
+    if(lyStWheel(step)) repaintQueue();
+    return;
+  }
   if(R.navLib && mx>=R.navLib.x && mx<R.navLib.x+R.navLib.w && my>=R.navLib.y && my<R.navLib.y+R.navLib.h){
     navScrollT=clampPx(navScrollT-step*WHEEL_PX,NAV_MAX); startScrollAnim(); return;
   }
