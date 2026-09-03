@@ -24,7 +24,7 @@
 
 // the key is `features`, not `options` -- without features.drag_n_drop the panel is never
 // registered as an OLE drop target, so no on_drag_* fires
-window.DefineScript('Verdant', { author:'superziper', version:'1.0.0', features:{ drag_n_drop:true, grab_focus:true } });
+window.DefineScript('Verdant', { author:'superziper', version:'1.1.0', features:{ drag_n_drop:true, grab_focus:true } });
 var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view (see applyKeyMode)
 
 /* ---- load order ------------------------------------------------------------

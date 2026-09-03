@@ -2,19 +2,15 @@
    Part of Verdant, a Spotify-style theme for foobar2000. Loaded by main.js;
    every module shares one global scope, so load order is set there. */
 
-/* ---- output ceiling --------------------------------------------------------
-   The slider's full position is VOL_CEIL dB, not foobar's 0 dB, so the whole range sits below
-   what foobar calls maximum. With enough gain downstream the top of the old scale is unusable
-   anyway, and the travel is better spent on the volumes actually in use.
-   -12.04 dB is a quarter of the AMPLITUDE (two halvings); a quarter of the PERCEIVED loudness is
-   nearer -20 dB, and 0 gives foobar's own range back. The curve itself is untouched -- still
-   10 dB per halving of the slider, only shifted down -- so the control feels exactly as before. */
-var VOL_CEIL=-12.04;
+/* The slider's full position is VOL_CEIL dB rather than foobar's 0 dB (see core/props.js, where
+   the property is read and defaults to 0 = no change). The curve itself is untouched -- still
+   10 dB per halving of the slider, only shifted down -- so the control feels the same at any
+   ceiling, and at the default these are exactly the functions they always were. */
 function vol2pos(v){ return Math.pow(2, (v-VOL_CEIL)/10); }                                        // dB(-100..VOL_CEIL) -> 0..1
 function pos2vol(p){ return p<=0?-100:Math.max(-100,Math.min(VOL_CEIL,10*Math.log(p)/Math.LN2+VOL_CEIL)); } // 0..1 -> dB
 /* foobar remembers its volume across restarts and its own menu/keys are not bound by the ceiling,
-   so a session left louder than VOL_CEIL is pulled back down once at load. Only at load: fighting
-   foobar's native controls on every change would make them look broken. */
+   so a session left louder than it is pulled back down once at load. Only at load: fighting
+   foobar's native controls on every change would make them look broken. A no-op at the default. */
 function capVolume(){ try{ if(fb.Volume>VOL_CEIL) fb.Volume=VOL_CEIL; }catch(e){} }
 function readOrder(){ try{ return plman.PlaybackOrder; }catch(e){ return 0; } }
 function setOrder(o){ try{ plman.PlaybackOrder=o; }catch(e){} }

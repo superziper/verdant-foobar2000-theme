@@ -37,6 +37,14 @@ if(UISCALE<=0){
 }
 UISCALE=Math.max(0.75,Math.min(3,UISCALE));
 
+/* Output ceiling, in dB below foobar's own maximum, applied to the volume slider's full position.
+   0 is foobar's range unchanged and is the right default: a theme has no business making anyone's
+   music quieter without being asked. Set it negative on a system with plenty of gain downstream,
+   where the top of the scale is unusable and the slider's whole travel is better spent lower --
+   -12 is a quarter of the amplitude, -20 nearer a quarter of the perceived loudness. Clamped, since
+   a wild value here would leave no usable range at all. */
+var VOL_CEIL = Math.max(-60, Math.min(0, propNum('Playback: output ceiling (dB below max)', 0)));
+
 /* Wheel step for the continuous (pixel-scrolled) lists. The tall artist cards scale this up
    themselves; see on_mouse_wheel. */
 var WHEEL_PX = Math.max(20, propNum('Scrolling: wheel step (px)', 180));
