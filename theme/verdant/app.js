@@ -342,13 +342,27 @@ function on_mouse_lbtn_up(x,y){
   }
   if((t=hit(HB_PL,x,y))){ plman.ActivePlaylist=t.i; firstRow=firstRowT=0; view='playlist'; repaintAll(); return; }
   if((t=hit(HB_Q,x,y))){ if(t.q!==undefined) playQueueItem(t.q); else playQueueNext(t.pl,t.item); repaintAll(); return; }
+  /* Rows play on DOUBLE click -- see on_mouse_lbtn_dblclk. The exception is the play glyph that
+     replaces the track number on the hovered row: that is a button, and a button takes one click.
+     Rows that draw no glyph (search results, the artist page) carry no pg band and so ignore this. */
   if((t=hit(HB_TR,x,y))){
-    if(t.srch){ var hs=[]; for(var m2=0;m2<searchTrks.length;m2++) hs.push(searchTrks[m2].h); playHandleList(hs,t.idx); }
-    else if(t.songs) playSongsRow(t.ti);
-    else if(t.lib) playArtistTrack(t.block,t.idx);
-    else playPlaylistItem(t.pl,t.item);
-    repaintAll(); return;
+    if(t.pgx1!==undefined && x>=t.pgx0 && x<t.pgx1) playRow(t);
+    return;
   }
+}
+function playRow(t){
+  if(t.srch){ var hs=[], m; for(m=0;m<searchTrks.length;m++) hs.push(searchTrks[m].h); playHandleList(hs,t.idx); }
+  else if(t.songs) playSongsRow(t.ti);
+  else if(t.lib) playArtistTrack(t.block,t.idx);
+  else playPlaylistItem(t.pl,t.item);
+  repaintAll();
+}
+// A single click on a list this dense is too easy to fire by accident, and it is the convention
+// every desktop player follows -- including the one this theme is modelled on.
+function on_mouse_lbtn_dblclk(x,y){
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||dupPrompt||rgPrompt) return;
+  var t=hit(HB_TR,x,y);
+  if(t) playRow(t);
 }
 function hoverSig(x,y){
   var i;

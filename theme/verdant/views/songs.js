@@ -91,7 +91,7 @@ function drawSongs(gr,r){
       if(showAlbum) tL(gr,t.album,FONT.rowCell,COL.text2,colX,ry,colW,gh);
       else if(showArtist) tL(gr,t.artist,FONT.rowCell,COL.text2,colX,ry,colW,gh);
       tR(gr,t.len,FONT.rowCell,COL.text2,rx-durW,ry,durW,gh);
-      HB_TR.push({x0:lx-8,y0:vy0,x1:rx+8,y1:vy1,songs:true,ti:row.ti});
+      HB_TR.push({x0:lx-8,y0:vy0,x1:rx+8,y1:vy1,songs:true,ti:row.ti,pgx0:numX,pgx1:numX+numW});
     } else {
       /* Group header: every kind is the same block on the same rhythm (GAP, artwork, PADB),
          differing only in indent, artwork size and -- for the artist banner -- a slab + eyebrow. */
