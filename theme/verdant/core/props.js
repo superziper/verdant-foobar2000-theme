@@ -16,6 +16,16 @@ function propNum(name,dflt){
   return isFinite(v)?v:dflt;
 }
 
+function propStr(name,dflt){
+  var v=dflt;
+  try{ v=window.GetProperty(name,dflt); }catch(e){ v=dflt; }
+  return (v===undefined||v===null||v==='')?dflt:String(v);
+}
+/* Which visualizer the fullscreen view draws. Unlike everything else here this one is also WRITTEN
+   at runtime -- the picker in fullscreen calls window.SetProperty -- so the choice survives a
+   restart. An unknown value simply falls through to the bars (see drawVizBody). */
+var vizStyle = propStr('Visualizer: style (bars | radial | wave)', 'bars');
+
 /* 0 = auto: follow the display, where 96 dpi is 100% scaling. Auto is right on most machines;
    set a number to override -- 1.0 is compact, 1.25 suits a 1440p 21", higher for a 4K panel.
    Clamped because a bad value here makes the panel unusable rather than merely ugly. */

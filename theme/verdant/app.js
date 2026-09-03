@@ -7,8 +7,8 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // Repaint scope flags. dirtyAll (sticky) forces a full paint; partial flags accumulate.
 // A full window.Repaint() MUST set dirtyAll (use repaintAll) so a paint serviced while a
 // partial flag is pending can't blank the rest of the window.
-var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false, dirtyTitle=false;
-function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=dirtyTitle=false; }
+var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false, dirtyTitle=false, dirtyViz=false;
+function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=dirtyTitle=dirtyViz=false; }
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
 /* Main's views draw the row/card straddling their crop line at full height and mask only the
    10px gutter below it (see the FillSolidRect(r.x,cropY,...) in each), so the remainder lands on
@@ -19,6 +19,8 @@ function repaintNav(){ dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R
 // drawNav paints both nav cards, so a hover crossing between them must invalidate their union
 function repaintNavAll(){ dirtyNav=true; window.RepaintRect(R.navTop.x,R.navTop.y,R.navTop.w,(R.navLib.y+R.navLib.h)-R.navTop.y); }
 function repaintQueue(){ dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+// the visualizer's own band, 30 times a second -- see the fullscreen branch of on_paint
+function repaintViz(){ dirtyViz=true; window.RepaintRect(0,VIZ_TOP,W,Math.max(0,(H-172)-VIZ_TOP)); }
 function repaintTitle(){ dirtyTitle=true; window.RepaintRect(0,0,W,TBH); }
 /* A hover only changes one panel's appearance, so repaint that panel rather than the whole
    window. Hitbox ownership is cleanly panel-aligned (HB_PL/HB_HOME/SBN -> nav, HB_CARD/HB_TR/
@@ -126,7 +128,17 @@ function on_paint(gr){
   visPlCache=null;   // one playlist scan per frame, shared by drawNav and drawHome
   gr.SetSmoothingMode(2);
   gr.SetInterpolationMode(5);   // NearestNeighbor: every DrawImage here is 1:1, so filtering is pure cost
-  if(fsMode){ clearDirty(); HB_DOTS=[]; drawFullscreen(gr); return; }
+  if(fsMode){
+    /* A visualizer frame changes only the bars. Redrawing the cover, the title, the seek bar and
+       the whole transport underneath them 30 times a second was most of the frame's cost, so a
+       frame flagged ONLY by the viz repaints just that band. Any other flag (or a paint we did not
+       ask for) still takes the full path, so nothing can be left stale behind the bars. */
+    var vizOnly=dirtyViz && fsView==='viz' && !vizMenuOpen && !dirtyAll && !dirtyBar && !dirtyMain
+                && !dirtyNav && !dirtyQueue && !dirtySearch && !dirtyTitle;
+    clearDirty();
+    if(vizOnly){ drawVizBand(gr); return; }
+    HB_DOTS=[]; drawFullscreen(gr); return;
+  }
   var anyPartial=dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav||dirtyTitle;
   // A partial paint skips drawOverlays, so a modal's dim backdrop would not be reapplied over the
   // region it redraws (the bar's 1 Hz repaint would flash back to full brightness). While an
@@ -174,7 +186,7 @@ function drawMain(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||dupPrompt||rgPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||dupPrompt||rgPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -297,6 +309,11 @@ function on_mouse_lbtn_up(x,y){
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)){ plSortMenuOpen=true; repaintAll(); return; }
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)){ togglePlSortDir(); return; }
   if(fsMode){
+    if(vizMenuOpen){                                  // the style list is modal while it is open
+      if((t=hit(VIZ_HB,x,y))){ setVizStyle(t.v); return; }
+      vizMenuOpen=false; repaintAll(); return;
+    }
+    if(HB_VIZ && fsView==='viz' && inRect(x,y,HB_VIZ)){ vizMenuOpen=true; repaintAll(); return; }
     if((t=hit(HB_FS,x,y))){ doFsAct(t.act); return; }
     if((t=hit(HB_CTRL,x,y))){ doCtrl(t.act); return; }
     return;
@@ -335,6 +352,11 @@ function on_mouse_lbtn_up(x,y){
 }
 function hoverSig(x,y){
   var i;
+  if(fsMode){
+    if(vizMenuOpen){ i=hitIdx(VIZ_HB,x,y); return (i<0)?'vz':('vz'+i); }
+    if(HB_VIZ && inRect(x,y,HB_VIZ)) return 'vzb';
+    if((i=hitIdx(HB_FS,x,y))>=0) return 'f'+i;      // fullscreen icons: hover feedback, same as anywhere
+  }
   if(dupPrompt){ if(DUP_HB){ if(inRect(x,y,DUP_HB.skip)) return 'dps'; if(inRect(x,y,DUP_HB.keep)) return 'dpk'; } return 'dp'; }
   if(renameEdit){ if(RENAME_HB){ if(inRect(x,y,RENAME_HB.save)) return 'rns'; if(inRect(x,y,RENAME_HB.cancel)) return 'rnc'; } return 'rn'; }
   if(rgPrompt){ if(RG_HB){ if(inRect(x,y,RG_HB.scan)) return 'rgs'; if(inRect(x,y,RG_HB.cancel)) return 'rgc'; } return 'rg'; }
