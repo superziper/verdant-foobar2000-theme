@@ -4,7 +4,8 @@
 
 /* Playlist name/count are read once per playlist instead of once per card per frame -- these
    are interop calls into foobar, and the draw loops ran dozens of them every paint. Cleared by
-   invalidateItems(), which every playlist callback already goes through. */
+   invalidateItems(), which every callback that can change a playlist's name or contents goes
+   through -- switching between playlists is not one of them and deliberately keeps the caches. */
 var plNameCache={}, plCountCache={};
 function plName(pi){ if(!plNameCache.hasOwnProperty(pi)) plNameCache[pi]=plman.GetPlaylistName(pi); return plNameCache[pi]; }
 function plCount(pi){ if(!plCountCache.hasOwnProperty(pi)) plCountCache[pi]=plman.PlaylistItemCount(pi); return plCountCache[pi]; }

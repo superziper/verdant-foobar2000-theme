@@ -526,7 +526,13 @@ function on_volume_change(){ repaintBar(); }
 function on_replaygain_mode_changed(){ repaintMain(); }
 // rgStat included: a ReplayGain scan lands as a tag write, so this is how the pill learns it finished
 function on_metadb_changed(handles,fromhook){ if(fromhook) return; invalidateItems(); albKeyCache={}; hueCache={}; artistCandCache={}; coverPickCache={}; songsIdx=null; songsRows=null; songsTracks=null; rgStat=null; updateNP(); repaintAll(); }
-function on_playlist_switch(){ firstRow=firstRowT=0; invalidateItems(); repaintAll(); }
+/* A switch changes which playlist is ACTIVE, not what any playlist contains -- and every cache
+   invalidateItems() drops is keyed by playlist index, so none of them went stale here. Dropping
+   them meant each switch re-derived covers and re-ran the art gates against an artCache that had
+   since evicted those albums: the view fell back to its skeleton and the artwork reloaded. The
+   caches that genuinely depend on playlist CONTENT are still cleared by the callbacks that mean
+   content changed (items added/removed/reordered, playlists changed). */
+function on_playlist_switch(){ firstRow=firstRowT=0; repaintAll(); }
 function on_playlists_changed(){ invalidateItems(); repaintAll(); }
 function on_playlist_items_added(pl){ invalidateItems(); if(dupWatch && dupWatch.pl===pl) scheduleDupScan(); repaintAll(); }
 function on_playlist_items_removed(){ invalidateItems(); repaintAll(); }

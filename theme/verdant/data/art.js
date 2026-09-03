@@ -138,11 +138,17 @@ function coverChoice(key,cov){
   if(p.list.length>=4) return {wait:false, list:p.list, single:p.list[0]};
   return {wait:false, list:[], single:p.list.length?p.list[0]:cov.single};
 }
+/* The thumb is checked BEFORE its source, and deliberately outlives it. artCache is the tightest
+   cache in the theme -- a ~500px bitmap per entry against a 40px thumb -- so on a large playlist it
+   evicts albums whose thumbs are still resident. Asking it first threw away a perfectly good thumb,
+   drew the placeholder, and refetched the full image from disk: that is what made row artwork
+   visibly "reload" on returning to a big playlist. An evicted source can only ever cost a reload,
+   never a wrong pixel, so the derivative is the better authority here. */
 function getThumb(h,key,size){
-  var img=getArtK(h,key);
-  if(!artLoaded(key)) return null;             // still loading -> placeholder, don't cache
   var tk=key+'|'+size;
   if(thumbCache.hasOwnProperty(tk)) return thumbCache[tk];
+  var img=getArtK(h,key);
+  if(!artLoaded(key)) return null;             // still loading -> placeholder, don't cache
   var r=null; if(img){ try{ r=img.Resize(size,size,2); }catch(e){ r=null; } }
   capPut(thumbCache,thumbOrder,THUMB_CAP,tk,r); return r;
 }
