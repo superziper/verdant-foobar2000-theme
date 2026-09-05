@@ -87,7 +87,7 @@ INSTALL
   with Windows 10 and 11.
 
   For a STANDARD (non-portable) install, extract the CONTENTS of the "profile"
-  folder into %APPDATA%\foobar2000 instead, then start foobar2000.
+  folder into %APPDATA%\foobar2000-v2 instead, then start foobar2000.
 
 ALREADY HAVE A FOOBAR2000 YOU HAVE SET UP?
   Do NOT extract over it -- profile\ contains a layout and core settings, and
