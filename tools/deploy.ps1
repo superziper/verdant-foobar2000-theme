@@ -8,7 +8,7 @@
         .\tools\deploy.ps1              # one-shot copy
         .\tools\deploy.ps1 -Watch       # copy now, then re-copy whenever a source file changes
 
-    The profile is auto-detected (portable install via the registry, else %APPDATA%\foobar2000).
+    The profile is auto-detected (portable install via the registry, else %APPDATA%\foobar2000-v2).
     Override it with -FoobarProfile, or set VERDANT_PROFILE once and forget about it.
 
     First time only, point the panel at the deployed copy:
@@ -32,7 +32,7 @@ if (-not (Test-Path $src)) { throw "theme source not found: $src" }
 #   1. -FoobarProfile
 #   2. $env:VERDANT_PROFILE   (set this once and forget it)
 #   3. a portable install found via the registry
-#   4. %APPDATA%\foobar2000
+#   4. %APPDATA%\foobar2000-v2
 if (-not $FoobarProfile) { $FoobarProfile = $env:VERDANT_PROFILE }
 if (-not $FoobarProfile) {
     foreach ($key in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\foobar2000',
@@ -46,7 +46,7 @@ if (-not $FoobarProfile) {
     }
 }
 if (-not $FoobarProfile) {
-    $appdata = Join-Path $env:APPDATA 'foobar2000'
+    $appdata = Join-Path $env:APPDATA 'foobar2000-v2'
     if (Test-Path $appdata) { $FoobarProfile = $appdata }
 }
 if (-not $FoobarProfile -or -not (Test-Path $FoobarProfile)) {

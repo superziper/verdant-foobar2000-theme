@@ -87,7 +87,7 @@ function Get-FoobarTarget {
         $exe = Join-Path $Explicit 'foobar2000.exe'
         if (-not (Test-Path $exe)) { throw "no foobar2000.exe in $Explicit" }
         $isPortable = Test-Path (Join-Path $Explicit 'portable_mode_enabled')
-        $prof = if ($isPortable) { Join-Path $Explicit 'profile' } else { Join-Path $env:APPDATA 'foobar2000' }
+        $prof = if ($isPortable) { Join-Path $Explicit 'profile' } else { Join-Path $env:APPDATA 'foobar2000-v2' }
         return [pscustomobject]@{ Root=$Explicit; Exe=$exe; Profile=$prof; Portable=$isPortable }
     }
 
@@ -112,7 +112,7 @@ function Get-FoobarTarget {
     foreach ($r in $roots) {
         if ($r -and (Test-Path (Join-Path $r 'foobar2000.exe'))) {
             $portable = Test-Path (Join-Path $r 'portable_mode_enabled')
-            $prof = if ($portable) { Join-Path $r 'profile' } else { Join-Path $env:APPDATA 'foobar2000' }
+            $prof = if ($portable) { Join-Path $r 'profile' } else { Join-Path $env:APPDATA 'foobar2000-v2' }
             return [pscustomobject]@{ Root=$r; Exe=(Join-Path $r 'foobar2000.exe'); Profile=$prof; Portable=$portable }
         }
     }

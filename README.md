@@ -91,7 +91,7 @@ That's it. Columns UI, JSplitter and UI Wizard are bundled — nothing to instal
 Windows 10 and 11.
 
 > For a **standard (non-portable)** install, extract the *contents* of `profile` into
-> `%APPDATA%\foobar2000` instead, then start foobar2000.
+> `%APPDATA%\foobar2000-v2` instead, then start foobar2000.
 
 ### Already have a foobar2000 you've set up?
 
