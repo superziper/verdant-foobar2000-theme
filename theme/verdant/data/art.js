@@ -15,7 +15,7 @@ function albKey(h){ if(!h) return ''; var p=h.Path; if(albKeyCache.hasOwnPropert
 function artWarmRepaint(){
   if(artRepaintPending) return;
   artRepaintPending=true;
-  var busy=(artQueue.length+artInFlight)>16;
+  var busy=(artGateQueue.length+artQueue.length+artWarmQueue.length+artInFlight)>16;
   window.SetTimeout(function(){
     artRepaintPending=false;
     if(!R.main||!R.navTop||!R.queue){ repaintAll(); return; }   // art can resolve before layout() has run
@@ -32,23 +32,63 @@ function artWarmRepaint(){
    to paint: the "drawn, then frozen" freeze. Mode 1 is several times cheaper and the result is
    downscaled again to card size before it is ever shown, so the difference is not visible.
    Fewer in flight also means fewer callbacks landing back to back. */
-var artQueue=[], artInFlight=0, ART_MAX_INFLIGHT=3, ART_DOWNSCALE=1, ART_MAXPX=500;
+/* Background (warm-up) requests live in a queue of their own and only reach the drive when it is
+   otherwise IDLE, one at a time. They used to share the on-screen queue, merely placed at the back
+   of it -- which kept the order right but not the contention: Home queued every artist and opening
+   a playlist queued every album in it, so the in-flight slots stayed full of reads nobody was
+   looking at, and on a spinning disk each of those slows every other read. Measured on a 4,144-track
+   library on a USB hard drive: 832 covers dispatched in the first minute, typically 147 ms each,
+   with a playlist view waiting 14 s for the 24 covers it actually showed. */
+/* Three tiers, served strictly in order:
+     gate   -- a section holding its reveal back behind a skeleton. Nothing in it is usable until
+               these arrive, so they go before anything else. Without this tier a gated section lost
+               to ungated content drawn after it: the newest request goes first, and the artist grid
+               paints its cards after the shelf gate asks, so the shelf's 12 covers waited behind a
+               hundred others (revealed at 6.0 s against 1.1 s).
+     demand -- on screen and already interactive, drawn with a placeholder meanwhile. Newest first,
+               so what was just scrolled to beats what was scrolled past.
+     warm   -- background pre-loading, only on an idle drive (above). */
+var artGateQueue=[], artQueue=[], artWarmQueue=[], artInFlight=0, ART_MAX_INFLIGHT=3, ART_DOWNSCALE=1, ART_MAXPX=500;
+var ART_TIER={warm:0, demand:1, gate:2};
+function artTierQueue(t){ return t==='gate'?artGateQueue:(t==='warm'?artWarmQueue:artQueue); }
 // while a section is holding back its reveal there is nothing interactive inside it, so it is
 // worth fetching harder; normal browsing drops back to ART_MAX_INFLIGHT
 var ART_GATE_INFLIGHT=6, artsGating=false;
 // gated sections fetch harder, because nothing in them is interactive until they reveal
 function artInflightCap(){ return artsGating?ART_GATE_INFLIGHT:ART_MAX_INFLIGHT; }
-function requestArt(h,key,lowPri){
-  if(!h || artCache.hasOwnProperty(key) || artPending[key]) return;
-  artPending[key]=true;
-  if(lowPri) artQueue.push([h,key]); else artQueue.unshift([h,key]);
+/* tier: 'gate', 'demand' (the default) or 'warm'; `true` still means warm, for the existing callers.
+   artPending[key] records the tier an entry is queued at, so it can be told apart and promoted. */
+function requestArt(h,key,tier){
+  if(tier===true) tier='warm'; else if(!tier) tier='demand';
+  if(!h || artCache.hasOwnProperty(key)) return;
+  var p=artPending[key];
+  if(p){
+    // wanted more urgently than it was queued: move it up a tier, or it would wait behind work that
+    // matters less. If it is not in its queue it is already in flight -- leave it be, since
+    // re-queueing would fetch it twice.
+    if(ART_TIER[tier]>ART_TIER[p]){
+      var q=artTierQueue(p);
+      for(var i=0;i<q.length;i++){
+        if(q[i][1]===key){ q.splice(i,1); artPending[key]=tier; artTierQueue(tier).unshift([h,key]); pumpArt(); break; }
+      }
+    }
+    return;
+  }
+  artPending[key]=tier;
+  if(tier==='warm') artWarmQueue.push([h,key]); else artTierQueue(tier).unshift([h,key]);
   pumpArt();
 }
 function pumpArt(){
-  while(artInFlight<artInflightCap() && artQueue.length){
-    var it=artQueue.shift();
+  while(artInFlight<artInflightCap() && (artGateQueue.length || artQueue.length)){
+    var it=artGateQueue.length?artGateQueue.shift():artQueue.shift();
     artInFlight++;
     startArt(it[0],it[1]);
+  }
+  // background work only on an idle drive, and never more than one read of it at a time
+  if(artInFlight===0 && !artGateQueue.length && !artQueue.length && artWarmQueue.length){
+    var w=artWarmQueue.shift();
+    artInFlight++;
+    startArt(w[0],w[1]);
   }
 }
 

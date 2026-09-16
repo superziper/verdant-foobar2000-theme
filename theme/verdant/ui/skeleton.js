@@ -63,7 +63,7 @@ function gateReady(key,handles,max){
     if(g.seen[k]) continue;
     if(artLoaded(k)){ g.seen[k]=1; continue; }
     pending++;
-    if(queued<GATE_BATCH){ requestArt(h,k); queued++; }   // enqueue in batches, not one burst
+    if(queued<GATE_BATCH){ requestArt(h,k,'gate'); queued++; }   // batches, not one burst; ahead of ungated work
   }
   if(pending===0){ g.done=true; return true; }
   gateWaiting++; return false;
