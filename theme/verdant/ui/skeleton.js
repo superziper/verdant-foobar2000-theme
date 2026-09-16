@@ -43,13 +43,19 @@ function shimmer(gr,x,y,w,h){
      be evicted before the reveal anyway), and a wall-clock ceiling covers slow or network storage
      at any size. Either way it reveals on data and lets covers fill in, as it did before.
    One-shot per key: once revealed, scrolling never drops back to a skeleton. */
-var gates={}, gateWaiting=0, GATE_BATCH=60, GATE_MAX=ART_CAP-60, GATE_TIMEOUT=12000;
-function gateReady(key,handles,max){
+/* GATE_TIMEOUT is the ceiling for a section whose artwork IS the content -- the shelf's cards are
+   2x2 mosaics, and half a mosaic reads as broken rather than loading. A row list is different: its
+   content is text that is ready in milliseconds, and its covers are 40px thumbnails beside that
+   text. Waiting on them buys nothing, so row views pass ROW_GATE_MS instead and let the thumbnails
+   arrive late. On a fast library the covers still beat that budget and nothing changes; on a slow
+   one the list appears at once instead of sitting behind a skeleton for seconds. */
+var gates={}, gateWaiting=0, GATE_BATCH=60, GATE_MAX=ART_CAP-60, GATE_TIMEOUT=12000, ROW_GATE_MS=600;
+function gateReady(key,handles,max,budget){
   var g=gates[key];
   if(g && g.done) return true;
   if(!g) g=gates[key]={done:false,seen:{},t:Date.now(),keys:null};
   var n=handles?handles.length:0;
-  if(!n || n>(max||GATE_MAX) || (Date.now()-g.t)>GATE_TIMEOUT){ g.done=true; return true; }
+  if(!n || n>(max||GATE_MAX) || (Date.now()-g.t)>(budget||GATE_TIMEOUT)){ g.done=true; return true; }
   // Album keys are derived once. albKey() reads h.Path -- an interop call -- before its own cache
   // check, so re-deriving them on every scan cost hundreds of crossings per frame, and the shimmer
   // scans 25 times a second. That is what starved input while a section was gating.

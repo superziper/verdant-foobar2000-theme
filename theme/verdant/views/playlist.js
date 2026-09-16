@@ -8,7 +8,7 @@ function drawPlaylist(gr,r){
   // the header reads meta too (track count, total duration), so the whole view waits on it, and
   // then on the artwork the reveal will actually show
   var metaOk=ensureBuilt('meta'+p.i,function(){ return metaReady(p.i); },function(){ return metaSteps(p.i); });
-  if(!metaOk || !gateReady('plart'+p.i,rowHandlesPl(p.i))){
+  if(!metaOk || !gateReady('plart'+p.i,rowHandlesPl(p.i),0,ROW_GATE_MS)){   // 0 = the default cap
     if(metaOk || skelVisible('meta'+p.i)) drawViewSkeleton(gr,r);
     return;
   }

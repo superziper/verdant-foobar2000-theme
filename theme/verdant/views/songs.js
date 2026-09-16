@@ -6,7 +6,7 @@
 function drawSongs(gr,r){
   HB_TR=[]; HB_CARD=[]; HB_SG=null; HB_RGNORM=null;
   var songsOk=ensureBuilt('songs',songsReady,songsSteps);
-  if(!songsOk || !gateReady('songsart',rowHandlesSongs())){
+  if(!songsOk || !gateReady('songsart',rowHandlesSongs(),0,ROW_GATE_MS)){   // 0 = the default cap
     if(songsOk || skelVisible('songs')) drawViewSkeleton(gr,r);
     return;
   }
