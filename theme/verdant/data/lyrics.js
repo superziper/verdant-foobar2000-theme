@@ -40,7 +40,16 @@ function drawRollingLyrics(gr,x,top,w,bot,font,curCol,align){
     var isCur=(li===lyCur), dist=Math.abs(bcY-viewMid), a=clamp01(1-dist/(viewMid-top));
     var col=isCur?curCol:RGBA(255,255,255,Math.round(24+120*a));
     var parts=L.subs[li], bTop=Math.round(bcY-L.blockH[li]/2);
-    for(s=0;s<parts.length;s++){ if(align==='l') tL(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); else tC(gr,parts[s],font,col,x,bTop+s*subLh,w,subLh); }
+    /* The cull above keeps a block while its CENTRE is near the view, which let its top edge sit a
+       whole block height above `top` -- over the tab strip in the queue pane, over the mini header
+       in fullscreen. There is no clip API, so each sub-line is drawn only when it fits entirely
+       inside the view, exactly as the unsynced block does. The rolling fade already takes lines to
+       near-invisible at the edges, so the cut lands where there is almost nothing to see. */
+    for(s=0;s<parts.length;s++){
+      var sy=bTop+s*subLh;
+      if(sy<top || sy+subLh>bot) continue;
+      if(align==='l') tL(gr,parts[s],font,col,x,sy,w,subLh); else tC(gr,parts[s],font,col,x,sy,w,subLh);
+    }
   }
 }
 /* Unsynced lyrics: a plain top-down block, no roll -- there are no timestamps to roll to. Anything
