@@ -252,10 +252,22 @@ function computeSearch(){
   var idx=getSearchIdx(), cnt=0;
   for(i=0;i<idx.length && cnt<150;i++){ if(idx[i].key.indexOf(q)>=0){ searchTrks.push(idx[i]); cnt++; } }
 }
+/* The back button restarts the current track once it is past the first moment of it, and only
+   steps back when pressed at the very start -- the rule every streaming player uses, because a
+   mis-hit mid-song should not lose your place in the queue. Paused counts too: it rewinds and
+   stays paused. Stopped has no position to rewind, so it steps back.
+   NOTE: media keys and foobar's own menu call fb.Prev() directly and cannot be intercepted from
+   a panel, so those still always step back. */
+var PREV_RESTART_SEC=1;
+function doPrev(){
+  var t=0; try{ t=fb.PlaybackTime; }catch(e){ t=0; }
+  if((fb.IsPlaying||fb.IsPaused) && t>PREV_RESTART_SEC){ try{ fb.PlaybackTime=0; return; }catch(e){} }
+  fb.Prev();
+}
 function doCtrl(act){
   if(act==='play') fb.PlayOrPause();
   else if(act==='next') fb.Next();
-  else if(act==='prev') fb.Prev();
+  else if(act==='prev') doPrev();
   else if(act==='shuffle') toggleShuffle();
   else if(act==='repeat') cycleRepeat();
   else if(act==='fullscreen'){ enterFullscreen(); return; }
