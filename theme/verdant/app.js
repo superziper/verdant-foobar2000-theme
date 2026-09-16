@@ -9,19 +9,30 @@ var W=window.Width, H=window.Height, R={}, NP=null, npTitleStr='', npArtistStr='
 // partial flag is pending can't blank the rest of the window.
 var dirtyAll=true, dirtyBar=false, dirtyQueue=false, dirtySearch=false, dirtyMain=false, dirtyNav=false, dirtyTitle=false, dirtyViz=false;
 function clearDirty(){ dirtyAll=dirtyBar=dirtyQueue=dirtySearch=dirtyMain=dirtyNav=dirtyTitle=dirtyViz=false; }
+/* When the oldest pending partial flag was raised. A RepaintRect is serviced within a frame or two,
+   so a flag still pending long after it went up means its paint was DEFERRED -- the window was
+   minimised, and a minimised window gets no WM_PAINT. The paint that finally arrives on restore is
+   the OS repainting the whole window onto a fresh surface, not the region we asked for; taking the
+   partial path then drew one panel and left the rest a flat grey until something was hovered. The
+   1 Hz clock guarantees a pending flag whenever the window is minimised mid-song, and the mouse
+   leaving for the taskbar raises one even when paused. Every partial setter calls markDirty() FIRST,
+   so the clock records the oldest flag rather than being reset by each new one. */
+var dirtySince=0, DIRTY_STALE_MS=250;
+function anyDirty(){ return dirtyBar||dirtyQueue||dirtySearch||dirtyMain||dirtyNav||dirtyTitle||dirtyViz; }
+function markDirty(){ if(!anyDirty()) dirtySince=Date.now(); }
 function repaintAll(){ dirtyAll=true; window.Repaint(); }
 /* Main's views draw the row/card straddling their crop line at full height and mask only the
    10px gutter below it (see the FillSolidRect(r.x,cropY,...) in each), so the remainder lands on
    the player bar. drawBar runs after main in the partial path, so pairing them covers it -- and
    it is far cheaper than the full-window repaint that used to hide this. */
-function repaintMain(){ dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); repaintBar(); }
-function repaintNav(){ dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
+function repaintMain(){ markDirty(); dirtyMain=true; window.RepaintRect(R.main.x,R.main.y,R.main.w,R.main.h); repaintBar(); }
+function repaintNav(){ markDirty(); dirtyNav=true; window.RepaintRect(R.navLib.x,R.navLib.y,R.navLib.w,R.navLib.h); }
 // drawNav paints both nav cards, so a hover crossing between them must invalidate their union
-function repaintNavAll(){ dirtyNav=true; window.RepaintRect(R.navTop.x,R.navTop.y,R.navTop.w,(R.navLib.y+R.navLib.h)-R.navTop.y); }
-function repaintQueue(){ dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
+function repaintNavAll(){ markDirty(); dirtyNav=true; window.RepaintRect(R.navTop.x,R.navTop.y,R.navTop.w,(R.navLib.y+R.navLib.h)-R.navTop.y); }
+function repaintQueue(){ markDirty(); dirtyQueue=true; window.RepaintRect(R.queue.x,R.queue.y,R.queue.w,R.queue.h); }
 // the visualizer's own band, 30 times a second -- see the fullscreen branch of on_paint
-function repaintViz(){ dirtyViz=true; window.RepaintRect(0,VIZ_TOP,W,Math.max(0,(H-172)-VIZ_TOP)); }
-function repaintTitle(){ dirtyTitle=true; window.RepaintRect(0,0,W,TBH); }
+function repaintViz(){ markDirty(); dirtyViz=true; window.RepaintRect(0,VIZ_TOP,W,Math.max(0,(H-172)-VIZ_TOP)); }
+function repaintTitle(){ markDirty(); dirtyTitle=true; window.RepaintRect(0,0,W,TBH); }
 /* A hover only changes one panel's appearance, so repaint that panel rather than the whole
    window. Hitbox ownership is cleanly panel-aligned (HB_PL/HB_HOME/SBN -> nav, HB_CARD/HB_TR/
    SB/SBH -> main, HB_Q/HB_TABS -> queue, HB_CTRL -> bar, HB_MENU/HB_CAP -> title), so the
@@ -105,7 +116,8 @@ function layout(){
   capW=-1; applyCaption();
   applyKeyMode();
 }
-function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; skelImgs={}; }   // bitmaps are keyed by geometry
+// bitmaps are keyed by geometry; and the panel's surface is rebuilt, so the next paint must be full
+function on_size(w,h){ W=w; H=h; layout(); plCardCache={}; artCardCache={}; artCardN=0; skelImgs={}; dirtyAll=true; }
 
 // name/count come from the per-playlist caches, not fresh interop: this runs on every paint of the playlist view
 function activePl(){ var i=plman.ActivePlaylist; return {i:i, name:i>=0?plName(i):'', count:i>=0?plCount(i):0}; }
@@ -115,7 +127,7 @@ function updateNP(){
   npTitleStr=m?TF.npTitle.EvalWithMetadb(m):'';
   npArtistStr=m?TF.npArtist.EvalWithMetadb(m):'';
 }
-function repaintBar(){ if(fsMode){ repaintAll(); return; } dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
+function repaintBar(){ if(fsMode){ repaintAll(); return; } markDirty(); dirtyBar=true; window.RepaintRect(0,R.barY,W,M.barH); }
 
 /* Only frames that actually redraw main may settle the shimmer -- a bar-only repaint (the 1Hz
    clock) would otherwise count zero skeletons and stop the animation while one is on screen. */
@@ -128,12 +140,13 @@ function on_paint(gr){
   visPlCache=null;   // one playlist scan per frame, shared by drawNav and drawHome
   gr.SetSmoothingMode(2);
   gr.SetInterpolationMode(5);   // NearestNeighbor: every DrawImage here is 1:1, so filtering is pure cost
+  var stale=anyDirty() && (Date.now()-dirtySince)>DIRTY_STALE_MS;   // see markDirty
   if(fsMode){
     /* A visualizer frame changes only the bars. Redrawing the cover, the title, the seek bar and
        the whole transport underneath them 30 times a second was most of the frame's cost, so a
        frame flagged ONLY by the viz repaints just that band. Any other flag (or a paint we did not
        ask for) still takes the full path, so nothing can be left stale behind the bars. */
-    var vizOnly=dirtyViz && fsView==='viz' && !vizMenuOpen && !dirtyAll && !dirtyBar && !dirtyMain
+    var vizOnly=dirtyViz && !stale && fsView==='viz' && !vizMenuOpen && !dirtyAll && !dirtyBar && !dirtyMain
                 && !dirtyNav && !dirtyQueue && !dirtySearch && !dirtyTitle;
     clearDirty();
     if(vizOnly){ drawVizBand(gr); return; }
@@ -144,7 +157,7 @@ function on_paint(gr){
   // region it redraws (the bar's 1 Hz repaint would flash back to full brightness). While an
   // overlay owns the screen, every paint takes the full path.
   var modal=renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt;
-  if(dirtyAll || !anyPartial || modal){ // full paint, or an OS/stale paint we can't scope
+  if(dirtyAll || !anyPartial || modal || stale){ // full paint, or an OS/stale paint we can't scope
     clearDirty();
     HB_DOTS=[];
     gr.FillSolidRect(0,0,W,H,COL.black);   // black canvas -> panels read as separated cards (Spotify look)
