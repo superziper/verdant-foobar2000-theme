@@ -74,8 +74,8 @@ look, not a client.
 - **Shuffle that tells the truth** — shuffle plays from a hidden shuffled copy of the playlist, so
   the "next up" list is the *actual* upcoming order, not a guess.
 - **Discord presence** — the playing track on your Discord profile, with album art and a live
-  progress bar, the way Spotify does it. On by default; your files are never uploaded.
-  [What is sent ↓](#discord-presence)
+  progress bar, the way Spotify does it. On by default; your files are never uploaded. Only the
+  title, artist and album are sent, to the Discord app on this machine.
 - **Custom title bar** — frameless window with real File / Library / Help menus and window controls.
 - **Space plays and pauses** — anywhere except where you're typing, like every other player.
 
@@ -140,7 +140,7 @@ Right-click the panel → **Properties**:
 |---|---|---|
 | `Display: UI scale (0 = auto)` | `0` | Scales every font and the title bar. `0` follows your display scaling; set `1.0` for a compact look, higher for a large or 4K screen. |
 | `Scrolling: wheel step (px)` | `180` | How far one wheel notch scrolls the lists. |
-| `Discord: show the playing track (1 = on)` | `1` | Shows the playing track on your Discord profile. Set `0` to turn it off completely — see [Discord presence](#discord-presence). |
+| `Discord: show the playing track (1 = on)` | `1` | Shows the playing track on your Discord profile. Set `0` to turn it off completely: nothing is published and no connection to Discord is opened. |
 
 Both are read when the panel loads — **reload the panel** (right-click → Reload) after changing them.
 
@@ -177,45 +177,6 @@ foobar's own *ReplayGain → Remove ReplayGain information from files*.
 
 ---
 
-## Discord presence
-
-Verdant shows what you're playing on your Discord profile — song, artist, album, cover art and
-a progress bar that tracks the music. **This is on by default.**
-
-<img src="docs/images/discord.png" alt="The Discord card: song, artist, album, cover art and a progress bar" width="360">
-
-**What leaves your machine.** The track's **title, artist and album**, written to the Discord
-app running on this computer over a local pipe. That's it.
-
-**What doesn't.** Your files, your library, your playlists, and your artwork. Discord shows
-cover art by URL and will not read a local file, so rather than uploading yours, Verdant
-*matches* the album against public catalogues — the Cover Art Archive for MusicBrainz-tagged
-files, otherwise iTunes or Deezer — and shows the cover they already host. The lookup sends an
-artist and album name, the same two strings already on the card, and the answer is cached so
-each album is asked about once. Albums nothing matches fall back to a plain record sleeve.
-
-**Turning it off.** Right-click the panel → **Properties** → set
-`Discord: show the playing track (1 = on)` to **0**, then reload the panel. That stops
-everything: no track data is published and no connection to Discord is opened at all.
-
-Pausing removes the card rather than freezing it — Discord has no paused state, and a card
-left up shows a timer that keeps climbing, which reads like you're still listening.
-
-It needs the **Discord desktop app** (the browser version has no presence support), and
-Discord's own *Settings → Activity Privacy → Share your detected activities* must be on.
-
-<details>
-<summary>Why the line under your name says "foobar2000" and not the artist</summary>
-
-Discord renders that line from the *application* behind the activity, and the application's
-name is fixed. Spotify's shows the artist because it isn't an app at all — it's an account
-connection, which Discord writes itself and treats specially. No third-party program can reach
-that, and `Verdant` tried: three transports, every field Discord accepts. The card below the
-line, which is the part people actually read, matches Spotify's closely.
-</details>
-
----
-
 ## Requirements
 
 - **foobar2000 v2, 64-bit** (developed and tested on 2.25)
@@ -247,8 +208,8 @@ anything is *Normalize volume*, which asks first and writes only ReplayGain tags
 **Does Verdant send anything anywhere?** One thing, and only while Discord presence is on: the
 playing track's title, artist and album, to the Discord app on your own machine. Album covers are
 looked up by artist and album name against public catalogues so that nothing of yours is uploaded.
-Everything else — your library, playlists and files — stays local. See
-[Discord presence](#discord-presence), including how to switch it off.
+Everything else — your library, playlists and files — stays local. To switch it off, set
+`Discord: show the playing track` to `0` in the panel properties and reload the panel.
 
 **It looks huge / tiny on my screen.** Set `Display: UI scale` in the panel properties — see
 [Tuning](#tuning).
