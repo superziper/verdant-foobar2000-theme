@@ -616,3 +616,4 @@ updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
 capVolume();       // pull a remembered volume back under the slider's ceiling
 startMemWatch();   // caches grow into the component's spare memory and back off as it fills
+drpSync();         // make foo_verdant agree with the Discord property before anything plays

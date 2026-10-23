@@ -26,6 +26,10 @@ Write-Host "Verdant v$version"
 $need = @{
     'theme'      = Join-Path $repo 'theme\verdant'
     'components' = Join-Path $repo 'components'
+    # Named explicitly: this one is BUILT rather than downloaded, so it is the one that can
+    # silently go missing after a clean checkout. Failing here beats shipping a zip whose
+    # Discord feature is absent.
+    'foo_verdant'= Join-Path $repo 'components\foo_verdant\foo_verdant.dll'
     'layout cfg' = Join-Path $repo 'dist-config\foo_ui_columns.dll.cfg'
     'core cfg'   = Join-Path $repo 'dist-config\config.sqlite'
     'fcl'        = Join-Path $repo 'dist-config\verdant-layout.fcl'
@@ -110,18 +114,33 @@ ALREADY HAVE A FOOBAR2000 YOU HAVE SET UP?
 REQUIREMENTS
   foobar2000 v2 (64-bit), Windows 10 or 11.
   Fonts: none to install -- it uses Segoe UI / Segoe MDL2 Assets, both built in.
-  Components: Columns UI, JSplitter, UI Wizard -- all bundled, installed only if missing.
+  Components: Columns UI, JSplitter, UI Wizard and Verdant's own Discord
+  component -- all bundled, installed only if missing.
 
 FIRST RUN
   Verdant reads foobar's Media Library. On a new foobar that library is empty, so
   Home, All Songs and the artist views will be blank until you add a music folder
   under Preferences > Media Library. That is expected, not a broken install.
 
+DISCORD
+  Verdant shows the playing track on your Discord profile: song, artist, album,
+  album art and a progress bar, like Spotify's. It is ON by default.
+
+  Only the track's title, artist and album are sent, to the Discord app running
+  on this machine. Your files are never uploaded: album art is matched against
+  public catalogues and shown by link, so nothing of your library leaves here.
+
+  To turn it off: right-click the panel > Properties > set
+      Discord: show the playing track (1 = on)
+  to 0, then reload the panel (right-click > Reload). With it off, nothing is
+  published and no connection to Discord is made.
+
 TUNING
   Right-click the panel > Properties:
     Display: UI scale (0 = auto)   0 follows your display; set 1.0 for compact, higher for 4K
     Scrolling: wheel step (px)     how far one wheel notch scrolls
-  Reload the panel (right-click > Reload) after changing either.
+    Discord: show the playing track (1 = on)
+  Reload the panel (right-click > Reload) after changing any of them.
 
 UNINSTALL
   Run uninstall.ps1 from the backup folder printed at the end of the install,

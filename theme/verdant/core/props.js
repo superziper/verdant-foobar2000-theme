@@ -16,15 +16,12 @@ function propNum(name,dflt){
   return isFinite(v)?v:dflt;
 }
 
-function propStr(name,dflt){
-  var v=dflt;
-  try{ v=window.GetProperty(name,dflt); }catch(e){ v=dflt; }
-  return (v===undefined||v===null||v==='')?dflt:String(v);
-}
-/* Which visualizer the fullscreen view draws. Unlike everything else here this one is also WRITTEN
-   at runtime -- the picker in fullscreen calls window.SetProperty -- so the choice survives a
-   restart. An unknown value simply falls through to the bars (see drawVizBody). */
-var vizStyle = propStr('Visualizer: style (bars | radial | wave)', 'bars');
+/* Which visualizer the fullscreen view draws. Deliberately NOT a panel property: the picker in
+   fullscreen is the place to change it, and mirroring the choice into window.SetProperty only
+   put a second, duplicate control in the Properties dialog. The cost is that the choice lasts
+   for the session rather than across a restart. An unknown value falls through to the bars
+   (see drawVizBody). */
+var vizStyle = 'bars';
 
 /* 0 = auto: follow the display, where 96 dpi is 100% scaling. Auto is right on most machines;
    set a number to override -- 1.0 is compact, 1.25 suits a 1440p 21", higher for a 4K panel.
@@ -48,3 +45,13 @@ var VOL_CEIL = Math.max(-60, Math.min(0, propNum('Playback: output ceiling (dB b
 /* Wheel step for the continuous (pixel-scrolled) lists. The tall artist cards scale this up
    themselves; see on_mouse_wheel. */
 var WHEEL_PX = Math.max(20, propNum('Scrolling: wheel step (px)', 180));
+
+/* Show the playing track on your Discord profile, via the bundled foo_verdant component.
+   On by default, because a feature nobody can find is worse than one that announces itself --
+   and because the card is a large part of why this theme exists.
+
+   Set to 0 and reload the panel to turn it off. That genuinely turns it OFF: the panel tells
+   the component to stand down, so no track data is published and no connection to the Discord
+   client is opened at all. Does nothing if foo_verdant is not installed.
+   See data/discord.js. */
+var DRP_ON = propNum('Discord: show the playing track (1 = on)', 1) > 0;

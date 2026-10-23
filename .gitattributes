@@ -10,3 +10,4 @@
 *.sqlite binary
 *.dll    binary
 *.exe    binary
+*.png    binary

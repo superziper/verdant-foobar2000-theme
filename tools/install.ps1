@@ -67,8 +67,12 @@ $layouts = @(
     [pscustomobject]@{ Theme=(Join-Path $ScriptDir 'profile\verdant');    Comp=(Join-Path $ScriptDir 'profile\user-components-x64'); Cfg=(Join-Path $ScriptDir 'profile\configuration'); Fcl=(Join-Path $ScriptDir 'extras\verdant-layout.fcl'); Sqlite=(Join-Path $ScriptDir 'profile\config.sqlite') }
     [pscustomobject]@{ Theme=(Join-Path $repoRoot  'theme\verdant');      Comp=(Join-Path $repoRoot  'components');                 Cfg=(Join-Path $repoRoot  'dist-config');          Fcl=(Join-Path $repoRoot  'dist-config\verdant-layout.fcl'); Sqlite=(Join-Path $repoRoot 'dist-config\config.sqlite') }
 )
-$P = $layouts | Where-Object { Test-Path $_.Theme } | Select-Object -First 1
-if (-not $P) { throw "can't find the theme payload next to this script -- is the zip fully extracted?" }
+# Named $Payload, not $P: PowerShell variable names are case-insensitive, so a one-letter $P
+# is the same variable as the $p of any `foreach ($p in ...)` later in the script. That
+# collision silently emptied the payload paths whenever another foobar2000 happened to be
+# running -- the one case this installer explicitly says it tolerates.
+$Payload = $layouts | Where-Object { Test-Path $_.Theme } | Select-Object -First 1
+if (-not $Payload) { throw "can't find the theme payload next to this script -- is the zip fully extracted?" }
 
 Say ""
 Say "  Verdant -- a modern Spotify-style theme for foobar2000"
@@ -144,9 +148,9 @@ Step '[2/6] Checking foobar2000 is closed'
 # else is somebody else's profile and no threat, so it warrants a warning, not a refusal.
 $targetRunning = Test-Path (Join-Path $fb.Profile 'running')
 $others = @()
-foreach ($p in @(Get-Process -Name 'foobar2000' -ErrorAction SilentlyContinue)) {
+foreach ($proc in @(Get-Process -Name 'foobar2000' -ErrorAction SilentlyContinue)) {
     $path = $null
-    try { $path = $p.Path } catch { }   # a process we can't inspect: assume it isn't ours
+    try { $path = $proc.Path } catch { }   # a process we can't inspect: assume it isn't ours
     if ($path -and ($path -eq $fb.Exe)) { $targetRunning = $true } else { $others += $path }
 }
 if ($targetRunning) {
@@ -186,7 +190,7 @@ Step '[4/6] Installing the theme'
 $themeDest = Join-Path $fb.Profile 'verdant'
 if (Test-Path $themeDest) { Note 'replacing an existing verdant\ folder'; [void]$restored.Add($themeDest); Copy-Item $themeDest -Destination (Join-Path $backupDir 'verdant') -Recurse -Force }
 else { [void]$added.Add($themeDest) }
-Copy-Tree $P.Theme $themeDest $true
+Copy-Tree $Payload.Theme $themeDest $true
 Ok ("theme -> {0}" -f $themeDest)
 
 # ---------------------------------------------------------------------------
@@ -196,11 +200,11 @@ Step '[5/6] Components'
 $compDest = Join-Path $fb.Profile 'user-components-x64'
 if ($SkipComponents) {
     Note 'skipped (-SkipComponents)'
-} elseif (-not (Test-Path $P.Comp)) {
+} elseif (-not (Test-Path $Payload.Comp)) {
     Note 'no bundled components in this package'
 } else {
     New-Item -ItemType Directory -Force -Path $compDest | Out-Null
-    foreach ($c in Get-ChildItem $P.Comp -Directory) {
+    foreach ($c in Get-ChildItem $Payload.Comp -Directory) {
         $target = Join-Path $compDest $c.Name
         if (Test-Path $target) {
             Note ("{0} -- already installed, left alone" -f $c.Name)
@@ -228,16 +232,16 @@ if ($hasCui) {
     # --- route B: they already use Columns UI. Replace ONLY the layout, via the
     #     component's own import, so their colours/fonts/columns/filters survive.
     Note 'existing Columns UI configuration found -- importing the layout only'
-    if (-not (Test-Path $P.Fcl)) { throw "layout file missing: $($P.Fcl)" }
+    if (-not (Test-Path $Payload.Fcl)) { throw "layout file missing: $($Payload.Fcl)" }
     Save-Existing $cuiCfg | Out-Null
-    & $fb.Exe '/columnsui:import-quiet' $P.Fcl
+    & $fb.Exe '/columnsui:import-quiet' $Payload.Fcl
     Start-Sleep -Seconds 2
     Ok 'layout imported (foobar2000 is starting up with it)'
     Note 'your colours, fonts, playlist columns and other settings were not touched'
 } else {
     # --- route A: no Columns UI layout to preserve. Drop the prepared config in.
     foreach ($f in 'foo_ui_columns.dll.cfg','foo_uie_jsplitter.dll.cfg','foo_ui_wizard.dll.cfg') {
-        $srcCfg = Join-Path $P.Cfg $f
+        $srcCfg = Join-Path $Payload.Cfg $f
         $dstCfg = Join-Path $cfgDir $f
         if (-not (Test-Path $srcCfg)) { continue }
         if (Test-Path $dstCfg) { Note ("{0} -- already present, left alone" -f $f) }
@@ -249,8 +253,8 @@ if ($hasCui) {
         # replace. Selecting Columns UI is then the one thing the user has to do.
         Warn 'foobar2000 has been run on this profile before, so its core settings were left as they are.'
         [void]$manualSteps.Add('Preferences > Display > set the user interface to "Columns UI", then restart foobar2000')
-    } elseif (Test-Path $P.Sqlite) {
-        Copy-Item $P.Sqlite $sqlite -Force
+    } elseif (Test-Path $Payload.Sqlite) {
+        Copy-Item $Payload.Sqlite $sqlite -Force
         [void]$added.Add($sqlite)
         Ok 'core settings installed (user interface set to Columns UI)'
     } else {
@@ -288,4 +292,10 @@ Note ('backup + uninstall.ps1: {0}' -f $backupDir)
 Say  ''
 Note 'Verdant reads your Media Library: if Home and All Songs look empty, add a'
 Note 'music folder under Preferences > Media Library.'
+Say  ''
+# Said out loud rather than left to be discovered: it publishes something, so the user is
+# told it is on and told where the switch is, in the same breath.
+Note 'Verdant shows the playing track on your Discord profile (title, artist, album).'
+Note 'Your files are never uploaded. To turn it off: right-click the panel > Properties >'
+Note 'set "Discord: show the playing track (1 = on)" to 0, then reload the panel.'
 Say  ''

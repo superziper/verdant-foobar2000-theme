@@ -25,3 +25,8 @@ metadb.sqlite
 # scratch space
 scratch/
 tmp/
+
+# the foobar2000 SDK is fetched, not vendored -- native\foo_verdant\scripts\get-sdk.ps1
+native/sdk/
+# native build output
+native/foo_verdant/build/

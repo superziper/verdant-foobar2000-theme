@@ -316,7 +316,6 @@ var VIZ_STYLES=[['Bars','bars'],['Radial ring','radial']];
 var vizMenuOpen=false, HB_VIZ=null, VIZ_HB=[];
 function setVizStyle(v){
   vizStyle=v; vizMenuOpen=false;
-  try{ window.SetProperty('Visualizer: style (bars | radial | wave)',v); }catch(e){}   // survives a restart
   repaintAll();
 }
 function drawVizBody(gr,top,bot){

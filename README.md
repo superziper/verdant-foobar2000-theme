@@ -7,8 +7,8 @@
 *A foobar2000 skin that turns the world's most configurable audio player into something
 that looks like a modern streaming app.*
 
-[![Release](https://img.shields.io/github/v/release/superziper/verdant-foobar2000-theme?color=1DB954&label=release)](https://github.com/superziper/verdant-foobar2000-theme/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/superziper/verdant-foobar2000-theme/total?color=1DB954)](https://github.com/superziper/verdant-foobar2000-theme/releases)
+[![Release](https://img.shields.io/github/v/release/superziper/verdant-foobar2000-theme?color=1DB954&label=release&cacheSeconds=3600)](https://github.com/superziper/verdant-foobar2000-theme/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/superziper/verdant-foobar2000-theme/total?color=1DB954&cacheSeconds=3600)](https://github.com/superziper/verdant-foobar2000-theme/releases)
 ![foobar2000](https://img.shields.io/badge/foobar2000-v2%20·%2064--bit-1DB954)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-1DB954)
 
@@ -73,6 +73,9 @@ look, not a client.
   volume knob between albums. [How it works ↓](#normalize-volume)
 - **Shuffle that tells the truth** — shuffle plays from a hidden shuffled copy of the playlist, so
   the "next up" list is the *actual* upcoming order, not a guess.
+- **Discord presence** — the playing track on your Discord profile, with album art and a live
+  progress bar, the way Spotify does it. On by default; your files are never uploaded.
+  [What is sent ↓](#discord-presence)
 - **Custom title bar** — frameless window with real File / Library / Help menus and window controls.
 
 ---
@@ -136,6 +139,7 @@ Right-click the panel → **Properties**:
 |---|---|---|
 | `Display: UI scale (0 = auto)` | `0` | Scales every font and the title bar. `0` follows your display scaling; set `1.0` for a compact look, higher for a large or 4K screen. |
 | `Scrolling: wheel step (px)` | `180` | How far one wheel notch scrolls the lists. |
+| `Discord: show the playing track (1 = on)` | `1` | Shows the playing track on your Discord profile. Set `0` to turn it off completely — see [Discord presence](#discord-presence). |
 
 Both are read when the panel loads — **reload the panel** (right-click → Reload) after changing them.
 
@@ -172,12 +176,51 @@ foobar's own *ReplayGain → Remove ReplayGain information from files*.
 
 ---
 
+## Discord presence
+
+Verdant shows what you're playing on your Discord profile — song, artist, album, cover art and
+a progress bar that tracks the music. **This is on by default.**
+
+**What leaves your machine.** The track's **title, artist and album**, written to the Discord
+app running on this computer over a local pipe. That's it.
+
+**What doesn't.** Your files, your library, your playlists, and your artwork. Discord shows
+cover art by URL and will not read a local file, so rather than uploading yours, Verdant
+*matches* the album against public catalogues — the Cover Art Archive for MusicBrainz-tagged
+files, otherwise iTunes or Deezer — and shows the cover they already host. The lookup sends an
+artist and album name, the same two strings already on the card, and the answer is cached so
+each album is asked about once. Albums nothing matches fall back to a plain record sleeve.
+
+**Turning it off.** Right-click the panel → **Properties** → set
+`Discord: show the playing track (1 = on)` to **0**, then reload the panel. That stops
+everything: no track data is published and no connection to Discord is opened at all.
+
+Pausing removes the card rather than freezing it — Discord has no paused state, and a card
+left up shows a timer that keeps climbing, which reads like you're still listening.
+
+It needs the **Discord desktop app** (the browser version has no presence support), and
+Discord's own *Settings → Activity Privacy → Share your detected activities* must be on.
+
+<details>
+<summary>Why the line under your name says "foobar2000" and not the artist</summary>
+
+Discord renders that line from the *application* behind the activity, and the application's
+name is fixed. Spotify's shows the artist because it isn't an app at all — it's an account
+connection, which Discord writes itself and treats specially. No third-party program can reach
+that, and `Verdant` tried: three transports, every field Discord accepts. The card below the
+line, which is the part people actually read, matches Spotify's closely.
+</details>
+
+---
+
 ## Requirements
 
 - **foobar2000 v2, 64-bit** (developed and tested on 2.25)
 - **Windows 10 or 11**
 - Bundled and installed for you: **Columns UI**, **JSplitter** (`foo_uie_jsplitter`),
   **UI Wizard** (`foo_ui_wizard`, optional — without it you keep the normal Windows title bar)
+  and **`foo_verdant`**, Verdant's own component for the Discord card (optional — without it
+  everything else works, there's just no presence)
 
 ---
 
@@ -198,6 +241,12 @@ so you can switch back at Preferences → Display → Columns UI → Layout. If 
 **Is my music library safe?** Verdant never touches your audio files. The one feature that writes
 anything is *Normalize volume*, which asks first and writes only ReplayGain tags.
 
+**Does Verdant send anything anywhere?** One thing, and only while Discord presence is on: the
+playing track's title, artist and album, to the Discord app on your own machine. Album covers are
+looked up by artist and album name against public catalogues so that nothing of yours is uploaded.
+Everything else — your library, playlists and files — stays local. See
+[Discord presence](#discord-presence), including how to switch it off.
+
 **It looks huge / tiny on my screen.** Set `Display: UI scale` in the panel properties — see
 [Tuning](#tuning).
 
@@ -209,11 +258,13 @@ anything is *Normalize volume*, which asks first and writes only ReplayGain tags
 theme/verdant/        the theme — copied verbatim into <profile>\verdant\
   main.js             entry point: declares the panel, sets the module load order
   core/               props, tokens, utils, title formats, memory caps, job scheduler
-  data/               art, library, playback, lyrics, replaygain, dedupe, playlist edit
+  data/               art, library, playback, lyrics, replaygain, dedupe, playlist edit, discord
   ui/                 skeletons + shimmer, window chrome and shared widgets
   views/              nav, playlist, home, artist, songs, search, queue, bar, fullscreen
   app.js              panel state, layout, paint dispatch, input, foobar callbacks
-components/           the three foobar components, bundled for the installer
+components/           the bundled components: three third-party, plus foo_verdant
+native/               foo_verdant's C++ source -- see native/README.md
+  foo_verdant/        the Discord component: pipe client, activity, cover-art lookup
 dist-config/          layout + core config harvested from a clean-room foobar
 tools/
   deploy.ps1          dev sync into the foobar profile ( -Watch to auto-sync )
