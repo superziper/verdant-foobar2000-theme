@@ -77,6 +77,7 @@ look, not a client.
   progress bar, the way Spotify does it. On by default; your files are never uploaded.
   [What is sent ↓](#discord-presence)
 - **Custom title bar** — frameless window with real File / Library / Help menus and window controls.
+- **Space plays and pauses** — anywhere except where you're typing, like every other player.
 
 ---
 
