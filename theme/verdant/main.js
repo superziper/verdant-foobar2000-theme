@@ -26,6 +26,7 @@
 // registered as an OLE drop target, so no on_drag_* fires
 window.DefineScript('Verdant', { author:'superziper', version:'1.3.0', features:{ drag_n_drop:true, grab_focus:true } });
 var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view (see applyKeyMode)
+var DLGC_WANTCHARS=0x0080;     // capture character keys only -- enough for Space = play/pause
 
 /* ---- load order ------------------------------------------------------------
    Only three edges here are load-time rather than call-time, and they are the

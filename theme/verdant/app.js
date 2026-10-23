@@ -86,7 +86,10 @@ var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
 var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
 // Re-asserted every full paint + on_size: JSplitter can reset window.DlgCode on resize/reload.
-function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:0; }catch(e){} }
+/* Search and rename need every key, because the user is typing into them. Everywhere else the
+   panel still asks for character keys, which is what lets Space reach on_char and act as
+   play/pause -- without it the dialog manager swallows Space before the panel ever sees it. */
+function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:DLGC_WANTCHARS; }catch(e){} }
 
 var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
 var HOME_MAXROW=0, ART_MAXBLOCK=0, SEARCH_MAXPX=0;
@@ -474,11 +477,21 @@ function on_char(code){
     else if(code>=32) renameEdit.text+=String.fromCharCode(code);
     caretOn=true; repaintAll(); return;
   }
-  if(view!=='search') return;
-  if(code===8) searchQuery=searchQuery.slice(0,-1);
-  else if(code===27) searchQuery='';
-  else if(code>=32) searchQuery+=String.fromCharCode(code);
-  searchScroll=searchScrollT=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
+  if(view==='search'){
+    if(code===8) searchQuery=searchQuery.slice(0,-1);
+    else if(code===27) searchQuery='';
+    else if(code>=32) searchQuery+=String.fromCharCode(code);
+    searchScroll=searchScrollT=0; caretOn=true; repaintAll();   // keep caret solid right after a keystroke
+    return;
+  }
+  /* Space = play/pause, the way every media player behaves. Deliberately after the two cases
+     above: in Search and while renaming a playlist a space is a character the user meant to
+     type, not a transport command. A modal owns the keyboard while it is open, so Space must
+     not reach playback from underneath one either. */
+  if(code===32 && !ctxMenu && !confirmDel && !dupPrompt && !rgPrompt &&
+     !sgMenuOpen && !plSortMenuOpen && !vizMenuOpen){
+    try{ fb.PlayOrPause(); }catch(e){}
+  }
 }
 function on_mouse_wheel(step){
   if(fsMode){
