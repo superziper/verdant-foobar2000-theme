@@ -181,6 +181,8 @@ foobar's own *ReplayGain → Remove ReplayGain information from files*.
 Verdant shows what you're playing on your Discord profile — song, artist, album, cover art and
 a progress bar that tracks the music. **This is on by default.**
 
+<img src="docs/images/discord.png" alt="The Discord card: song, artist, album, cover art and a progress bar" width="360">
+
 **What leaves your machine.** The track's **title, artist and album**, written to the Discord
 app running on this computer over a local pipe. That's it.
 
