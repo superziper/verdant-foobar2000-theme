@@ -55,12 +55,13 @@ var firstRow=0, hoverKey='', scrollKey='', hoverZoneKey='', mx=-1, my=-1, drag=n
 // eased scrolling: animate each rendered position toward its target, repainting only the moving region
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll, d6=plScrollT-plScroll;
+  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll, d6=plScrollT-plScroll, d7=cfgScrollT-cfgScroll;
   if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; mm=true; } else firstRow=firstRowT;
   if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; mm=true; } else homeScroll=homeScrollT;
   if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; mm=true; } else songsScroll=songsScrollT;
   if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; mm=true; } else searchScroll=searchScrollT;
   if(Math.abs(d6)>=0.5){ plScroll+=d6*0.25; mm=true; } else plScroll=plScrollT;
+  if(Math.abs(d7)>=0.5){ cfgScroll+=d7*0.25; mm=true; } else cfgScroll=cfgScrollT;
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; nm=true; } else navScroll=navScrollT;
   if(mm) repaintMain();
   if(nm) repaintNav();
@@ -83,6 +84,17 @@ var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_
 
 var rightTab='queue';
 var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+/* The gear TOGGLES rather than only opening: it is the same button in both states, so a second
+   click putting you back where you came from is what anyone expects of it. prevView is only ever
+   a real destination -- never 'settings' itself -- so the button can't bounce between two
+   settings pages. The state behind that destination (the active playlist, the loaded artist) is
+   untouched by the page, so returning to it needs nothing more than the name. */
+var prevView='home';
+function toggleSettings(){
+  if(view==='settings'){ view=(prevView==='settings')?'home':prevView; }
+  else { prevView=view; view='settings'; cfgMenu=null; cfgScroll=cfgScrollT=0; }
+  repaintAll();
+}
 // Fullscreen "chill" mode + its sub-view (default now-playing / lyrics / visualizer)
 var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
 // Re-asserted every full paint + on_size: JSplitter can reset window.DlgCode on resize/reload.
@@ -188,6 +200,7 @@ function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   if(view!=='songs'){ HB_SG=null; SG_HB=[]; HB_RGNORM=null; }
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
+  if(view!=='settings'){ CFG_PILL=[]; CFG_HB=[]; CFG_ROWS=[]; CFG_SWITCH=null; cfgMenu=null; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
   var r=R.main; panelBg(gr,r,COL.base);
@@ -195,6 +208,7 @@ function drawMain(gr){
   if(view==='search'){ drawSearch(gr,r); return; }
   if(view==='artist'){ drawArtist(gr,r); return; }
   if(view==='songs'){ drawSongs(gr,r); return; }
+  if(view==='settings'){ drawSettings(gr,r); return; }
   drawPlaylist(gr,r);
 }
 
@@ -202,7 +216,7 @@ function drawMain(gr){
 function seekFrac(x){ return HB_SEEK?clamp01((x-HB_SEEK.x)/HB_SEEK.w):0; }
 function applyVol(x){ if(HB_VOL){ fb.Volume=pos2vol(clamp01((x-HB_VOL.x)/HB_VOL.w)); repaintBar(); } }
 function on_mouse_lbtn_down(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||dupPrompt||rgPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||cfgMenu||dupPrompt||rgPrompt) return;   // overlays are modal; dismissal/actions handled on button-up
   if(HB_SEEK && inRect(x,y,HB_SEEK)){ drag='seek'; dragFrac=seekFrac(x); repaintBar(); return; }
   if(HB_VOL && inRect(x,y,HB_VOL)){ drag='vol'; applyVol(x); return; }
   if(SBH && inRect(x,y,SBH)){ drag='scrollh'; setScrollH(x); return; }
@@ -328,6 +342,12 @@ function on_mouse_lbtn_up(x,y){
     if((t=hit(SG_HB,x,y))){ setSongsGroup(t.v); return; }
     sgMenuOpen=false; repaintAll(); return;
   }
+  // the Settings page's dropdowns: one open at a time, and modal-ish while it is
+  if(cfgMenu){
+    if((t=hit(CFG_HB,x,y))){ cfgApply(cfgMenu,t.v); return; }
+    cfgMenu=null; repaintAll(); return;
+  }
+  if((t=hit(CFG_ROWS,x,y))){ cfgClickRow(t); return; }
   if(HB_SG && inRect(x,y,HB_SG)){ sgMenuOpen=true; repaintAll(); return; }
   if(HB_RGNORM && inRect(x,y,HB_RGNORM)){ rgToggle(); return; }
   if(plSortMenuOpen){
@@ -347,6 +367,7 @@ function on_mouse_lbtn_up(x,y){
     return;
   }
   if(y<TBH){
+    if(HB_GEAR && inRect(x,y,HB_GEAR)){ toggleSettings(); return; }
     if((t=hit(HB_MENU,x,y))){ openMenu(t.root,t.mx,TBH); return; }
     if(HB_CAP){
       if(x>=HB_CAP.closeX){ fb.Exit(); return; }
@@ -388,7 +409,7 @@ function playRow(t){
 // A single click on a list this dense is too easy to fire by accident, and it is the convention
 // every desktop player follows -- including the one this theme is modelled on.
 function on_mouse_lbtn_dblclk(x,y){
-  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||dupPrompt||rgPrompt) return;
+  if(ctxMenu||confirmDel||renameEdit||sgMenuOpen||plSortMenuOpen||vizMenuOpen||cfgMenu||dupPrompt||rgPrompt) return;
   var t=hit(HB_TR,x,y);
   if(t) playRow(t);
 }
@@ -406,8 +427,10 @@ function hoverSig(x,y){
   if(ctxMenu){ i=hitIdx(CTX_HB,x,y); return (i<0)?'cx':('cx'+i); }
   if(sgMenuOpen){ i=hitIdx(SG_HB,x,y); return (i<0)?'sg':('sg'+i); }
   if(plSortMenuOpen){ i=hitIdx(PL_SORT_HB,x,y); return (i<0)?'ps':('ps'+i); }
+  if(cfgMenu){ i=hitIdx(CFG_HB,x,y); return (i<0)?'cg':('cg'+i); }
   if((i=hitIdx(HB_DOTS,x,y))>=0) return 'd'+i;
   if(y<TBH){
+    if(HB_GEAR && inRect(x,y,HB_GEAR)) return 'gear';
     if((i=hitIdx(HB_MENU,x,y))>=0) return 'mnu'+i;
     if(HB_CAP && x>=HB_CAP.minX) return 'cap'+(((x-HB_CAP.minX)/HB_CAP.bw)|0);
     return '';
@@ -422,7 +445,10 @@ function hoverSig(x,y){
   if(HB_RGNORM && inRect(x,y,HB_RGNORM)) return 'nzb';
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)) return 'psb';
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)) return 'psd';
+  if((i=hitIdx(CFG_PILL,x,y))>=0) return 'cfp'+i;
+  if(CFG_SWITCH && inRect(x,y,CFG_SWITCH)) return 'cfs';
   if(SB && inRect(x,y,SB)) return 'sb';
+  if((i=cfgRowAt(x,y))>=0) return 'cfr'+i;
   if((i=hitIdx(HB_CTRL,x,y))>=0) return 'c'+i;
   if((i=hitIdx(HB_TABS,x,y))>=0) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
@@ -444,7 +470,7 @@ function on_mouse_move(x,y){
   if(sig!==hoverKey || sk!==scrollKey){   // sk change reveals/hides the section scrollbar
     hoverKey=sig; scrollKey=sk;
     // an overlay owns the whole screen and on_paint forces a full paint while one is open
-    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen||cfgMenu) repaintAll();
     else { repaintZone(hoverZoneKey); if(z!==hoverZoneKey) repaintZone(z); }   // clear the old highlight, then draw the new
   }
   hoverZoneKey=z;
@@ -457,6 +483,7 @@ function scrollSection(x,y){
     if(view==='playlist') return 'pl';
     if(view==='songs') return 'songs';
     if(view==='search') return 'srch';
+    if(view==='settings') return 'set';
   }
   return '';
 }
@@ -464,7 +491,7 @@ function on_mouse_leave(){
   mx=-1; my=-1;
   if(hoverKey!==''||scrollKey!==''){
     hoverKey=''; scrollKey='';
-    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen) repaintAll();
+    if(renameEdit||ctxMenu||confirmDel||dupPrompt||rgPrompt||sgMenuOpen||plSortMenuOpen||cfgMenu) repaintAll();
     else repaintZone(hoverZoneKey);
   }
   hoverZoneKey='';
@@ -489,7 +516,7 @@ function on_char(code){
      type, not a transport command. A modal owns the keyboard while it is open, so Space must
      not reach playback from underneath one either. */
   if(code===32 && !ctxMenu && !confirmDel && !dupPrompt && !rgPrompt &&
-     !sgMenuOpen && !plSortMenuOpen && !vizMenuOpen){
+     !sgMenuOpen && !plSortMenuOpen && !vizMenuOpen && !cfgMenu){
     try{ fb.PlayOrPause(); }catch(e){}
   }
 }
@@ -516,6 +543,7 @@ function on_mouse_wheel(step){
     return;
   }
   else if(view==='songs'){ songsScrollT=clampPx(songsScrollT-step*WHEEL_PX,SONGS_MAXPX); startScrollAnim(); return; }
+  else if(view==='settings'){ cfgScrollT=clampPx(cfgScrollT-step*WHEEL_PX,CFG_MAXPX); startScrollAnim(); return; }
   else if(view==='search'){ searchScrollT=clampPx(searchScrollT-step*WHEEL_PX,SEARCH_MAXPX); startScrollAnim(); return; }
   else if(view==='artist'){ artScroll=clampPx(artScroll-step,ART_MAXBLOCK); repaintAll(); return; }
   firstRowT=clampPx(firstRowT-step*WHEEL_PX,PL_MAXPX); startScrollAnim();

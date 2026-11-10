@@ -19,14 +19,16 @@ var COL = {
 var M = { pad:8, gap:8, navW:230, queueW:400, barH:96, navTopH:84, rowH:56, radius:10, cpad:24, headH:280, artSz:200 };   // navW/queueW: sidebar + queue widths
 var PALETTE=[RGB(83,62,140),RGB(30,120,110),RGB(150,64,92),RGB(43,92,160),RGB(120,92,44),RGB(58,120,64),RGB(140,80,120),RGB(52,100,150),RGB(96,72,52),RGB(70,70,96)];
 
-/* ------------------------- fonts (create once) -------------------------
-   Every font is built here at load time from UISCALE, which core/props.js has already resolved
-   from the panel property (or the display DPI). That is why props.js loads first, and why a
-   scale change needs a panel reload rather than just a repaint.
+/* ------------------------- fonts -------------------------
+   Every font is sized from UISCALE, which core/props.js has already resolved from the panel
+   property (or the display DPI). That is why props.js loads first.
+   The table is built by a FUNCTION rather than written inline so the Settings page can rebuild it
+   when the scale changes: every call site reads FONT.x at draw time, so swapping the whole table
+   is enough and no reload is needed (see applyUIScale).
    Regular (non-bold) text uses 'Segoe UI Semibold' so it doesn't read thin. */
 function gf(name,sz,style){ return gdi.Font(name, Math.max(1,Math.round(sz*UISCALE)), style||0); }
 function F(sz,bold){ return gf(bold?'Segoe UI':'Segoe UI Semibold', sz, bold?1:0); }
-var FONT = {
+function buildFonts(){ return {
   lib:F(15,1), pl:F(13,1), plSub:F(11,0),
   eyebrow:F(11,1), title:F(52,1), meta:F(13,0),
   rowTitle:F(14,0), rowArtist:F(12,0), rowNum:F(13,0), rowCell:F(13,0), head:F(12,1),
@@ -39,13 +41,15 @@ var FONT = {
   lyric:gf('Segoe UI',18,1), fsLyric:gf('Segoe UI',30,1),
   fsSrc:gf('Segoe UI Semibold',13,0),
   fsSrcName:gf('Segoe UI',13,1)   // bold: the playlist name, vs. the plain-weight fixed caption
-};
+}; }
+var FONT = buildFonts();
 function chr(c){ return String.fromCharCode(c); }
 // MDL2 fallbacks for drawIcon when gdi.LoadSVG is unavailable (keys mirror ICONS), plus caption buttons
 var GLYPH = {
   play:chr(0xE768), pause:chr(0xE769), prev:chr(0xE892), next:chr(0xE893),
   shuffle:chr(0xE8B1), repeat:chr(0xE8EE), repeat1:chr(0xE8ED), volume:chr(0xE767),
   search:chr(0xE721), home:chr(0xE80F), add:chr(0xE710), more:chr(0xE712), clock:chr(0xE823),
+  settings:chr(0xE713), toggleOn:chr(0xE8FB), toggleOff:chr(0xE711),
   cmin:chr(0xE921), cmax:chr(0xE922), crestore:chr(0xE923), cclose:chr(0xE8BB)
 };
 var CH_DOT=chr(0xB7), CH_BULL=chr(0x2022);
@@ -89,6 +93,13 @@ var ICONS={
  compress:"<path d='M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z'/>",
  mic:"<path d='M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z'/>",
  equalizer:"<path d='M10 20h4V4h-4zm-6 0h4v-8H4zm12-11v11h4V9z'/>",
+ settings:"<path d='M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61"
+         +"l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41"
+         +"h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22"
+         +"L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61"
+         +"l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84"
+         +"c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32"
+         +"c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 15.6 12 3.6 3.6 0 0 1 12 15.6z'/>",
  chevron:"<path d='M7 10l5 5 5-5z'/>",
  sortAsc:"<path d='M4 12l1.41 1.41L11 7.83V20h2V7.83l5.59 5.58L20 12l-8-8-8 8z'/>",
  sortDesc:"<path d='M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.59-5.58L4 12l8 8 8-8z'/>"

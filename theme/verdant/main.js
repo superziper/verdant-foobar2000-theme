@@ -63,6 +63,7 @@ include('views/home.js');
 include('views/artist.js');
 include('views/songs.js');
 include('views/search.js');
+include('views/settings.js');
 include('views/queue.js');
 include('views/bar.js');
 include('views/fullscreen.js');

@@ -76,7 +76,10 @@ look, not a client.
 - **Discord presence** — the playing track on your Discord profile, with album art and a live
   progress bar, the way Spotify does it. On by default; your files are never uploaded. Only the
   title, artist and album are sent, to the Discord app on this machine.
-- **Custom title bar** — frameless window with real File / Library / Help menus and window controls.
+- **Custom title bar** — frameless window with real File / Library / Help menus, window controls,
+  and a gear that opens the settings page.
+- **Settings in the theme** — UI scale, output ceiling, wheel step and Discord presence as real
+  controls, applied the moment you pick them. No properties dialog, no panel reload.
 - **Space plays and pauses** — anywhere except where you're typing, like every other player.
 
 ---
@@ -132,17 +135,23 @@ same name.
 
 ---
 
-## Tuning
+## Settings
 
-Right-click the panel → **Properties**:
+Click the **gear** at the right of the title bar, just inside the window buttons.
 
-| Property | Default | What it does |
+| Setting | Default | What it does |
 |---|---|---|
-| `Display: UI scale (0 = auto)` | `0` | Scales every font and the title bar. `0` follows your display scaling; set `1.0` for a compact look, higher for a large or 4K screen. |
-| `Scrolling: wheel step (px)` | `180` | How far one wheel notch scrolls the lists. |
-| `Discord: show the playing track (1 = on)` | `1` | Shows the playing track on your Discord profile. Set `0` to turn it off completely: nothing is published and no connection to Discord is opened. |
+| **UI scale** | Auto | Scales every font, icon and the title bar. Auto follows your display's scaling; pick `100%` for a compact look, higher for a large or 4K screen. |
+| **Output ceiling** | Full range | Lowers the top of the volume slider, in dB below foobar's own maximum. Worth setting on a system with plenty of gain downstream, where the top of the scale is unusable and the slider's travel is better spent lower. |
+| **Wheel step** | Normal (180 px) | How far one wheel notch scrolls a list. |
+| **Discord presence** | On | Shows the playing track on your Discord profile. Off turns it off completely: nothing is published and no connection to Discord is opened. Needs the bundled `foo_verdant` component. |
 
-Both are read when the panel loads — **reload the panel** (right-click → Reload) after changing them.
+Changes apply as you make them — including UI scale, which rebuilds the fonts and the title bar in
+place. Nothing here needs a panel reload.
+
+The four values live in the panel's own property store, so they travel with your layout. Right-click
+→ **Properties** still edits the same four and remains useful for typing an exact value the page
+doesn't offer as a preset (`-8` dB, say) — the page shows whatever is actually stored.
 
 Sidebar and queue-pane widths are still code: `M.navW` / `M.queueW` in
 [`theme/verdant/core/tokens.js`](theme/verdant/core/tokens.js).
@@ -208,11 +217,11 @@ anything is *Normalize volume*, which asks first and writes only ReplayGain tags
 **Does Verdant send anything anywhere?** One thing, and only while Discord presence is on: the
 playing track's title, artist and album, to the Discord app on your own machine. Album covers are
 looked up by artist and album name against public catalogues so that nothing of yours is uploaded.
-Everything else — your library, playlists and files — stays local. To switch it off, set
-`Discord: show the playing track` to `0` in the panel properties and reload the panel.
+Everything else — your library, playlists and files — stays local. To switch it off, turn
+**Discord presence** off in [Settings](#settings).
 
-**It looks huge / tiny on my screen.** Set `Display: UI scale` in the panel properties — see
-[Tuning](#tuning).
+**It looks huge / tiny on my screen.** Set **UI scale** in [Settings](#settings) — it takes effect
+as you pick it, so you can see the result and adjust again from the same page.
 
 ---
 
@@ -224,7 +233,7 @@ theme/verdant/        the theme — copied verbatim into <profile>\verdant\
   core/               props, tokens, utils, title formats, memory caps, job scheduler
   data/               art, library, playback, lyrics, replaygain, dedupe, playlist edit, discord
   ui/                 skeletons + shimmer, window chrome and shared widgets
-  views/              nav, playlist, home, artist, songs, search, queue, bar, fullscreen
+  views/              nav, playlist, home, artist, songs, search, settings, queue, bar, fullscreen
   app.js              panel state, layout, paint dispatch, input, foobar callbacks
 components/           the bundled components: three third-party, plus foo_verdant
 native/               foo_verdant's C++ source -- see native/README.md
@@ -240,6 +249,13 @@ tools/
 Every module is evaluated into **one shared global scope**, so any module can call into any other.
 `main.js` fixes the load order because a few things are computed at load time (fonts from `UISCALE`,
 the reveal-gate ceiling from `ART_CAP`).
+
+Settings are panel properties, read once in `core/props.js` and written back by the `apply*`
+functions at the bottom of that file — each of which updates the running value as well as the
+stored one, which is why none of them needs a reload. `applyUIScale` is the interesting case: it
+rebuilds the whole font table (`buildFonts`) and the title-bar metrics (`chromeMetrics`), the only
+two things `UISCALE` feeds. Adding a setting means a constant in `PROP`, a value, an `apply*`, and a
+row in `cfgModel` in [`views/settings.js`](theme/verdant/views/settings.js).
 
 The whole theme runs on **one thread shared with the UI**, which is why the code caches aggressively,
 slices long builds across timer ticks, and scopes repaints to the one panel that changed.

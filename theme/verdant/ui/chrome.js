@@ -3,11 +3,25 @@
    every module shares one global scope, so load order is set there. */
 
 /* Custom window title bar via UI Wizard (foo_ui_wizard) - frameless + our own controls */
-var TBH = Math.round(32*UISCALE), CAPBW = Math.round(46*UISCALE);
+/* Title-bar metrics, all derived from UISCALE. Grouped into a function because the Settings page
+   can change the scale while the panel runs, and every one of them has to move together with the
+   fonts (see applyUIScale). GEARW/GEARGAP size the settings button that sits just inside the
+   window controls. */
+var TBH, CAPBW, GEARW, GEARGAP;
+function chromeMetrics(){
+  TBH    =Math.round(32*UISCALE);
+  CAPBW  =Math.round(46*UISCALE);
+  GEARW  =Math.round(40*UISCALE);
+  GEARGAP=Math.round(10*UISCALE);
+  capW=-1;   // the caption rect's height just changed: make applyCaption re-send it
+}
+chromeMetrics();
 var UIWizard=null; try{ UIWizard=new ActiveXObject('UIWizard'); }catch(e){ UIWizard=null; }
 var MENUS=[['File','file'],['Library','library'],['Help','help']];
 var MENU_END=0, capW=-1, capEnd=-1;
-function applyCaption(){ if(!UIWizard) return; if(capW===W && capEnd===MENU_END) return; capW=W; capEnd=MENU_END; try{ UIWizard.SetCaptionAreaSize(MENU_END,0,Math.max(0,W-CAPBW*3-MENU_END),TBH); }catch(e){} }
+// left edge of the settings button -- also where the OS caption (drag) area has to stop
+function gearX(){ return W-CAPBW*3-GEARGAP-GEARW; }
+function applyCaption(){ if(!UIWizard) return; if(capW===W && capEnd===MENU_END) return; capW=W; capEnd=MENU_END; try{ UIWizard.SetCaptionAreaSize(MENU_END,0,Math.max(0,gearX()-MENU_END),TBH); }catch(e){} }
 function openMenu(root,x,y){ try{ var mm=fb.CreateMainMenuManager(); mm.Init(root); var m=window.CreatePopupMenu(); mm.BuildMenu(m,1,600); var id=m.TrackPopupMenu(x,y); if(id>0) mm.ExecuteByID(id-1); }catch(e){} }
 
 // small hover "..." button; records a HB_DOTS target that opens the menu just below it
@@ -49,6 +63,7 @@ function setScroll(y){
   else if(view==='home') homeScroll=homeScrollT=px;
   else if(view==='songs') songsScroll=songsScrollT=px;
   else if(view==='search') searchScroll=searchScrollT=px;
+  else if(view==='settings') cfgScroll=cfgScrollT=px;
   repaintMain();
 }
 function setScrollN(y){ if(!SBN) return; navScroll=navScrollT=Math.round(sbFrac(y,SBN.top,SBN.h,SBN.thumbH)*SBN.maxPx); repaintNav(); }
@@ -170,11 +185,39 @@ function tPara(gr,s,f,c,x,y,w,lh){
   return y;
 }
 
+/* ---- switch: the on/off control the Settings page uses ----
+   A capsule track with a knob, rather than a checkbox: at a glance the colour says which state
+   you are in, which a 13px tick in a dark theme does not. A disabled switch draws dim and its
+   caller draws no hitbox for it, so a setting the theme cannot actually deliver (Discord with no
+   component installed) can't be switched into a state that would be a lie. */
+function drawSwitch(gr,x,y,w,h,on,enabled){
+  var rad=h/2, hot=enabled&&hv(x,y,x+w,y+h);
+  var track=!enabled ? RGB(44,44,44) : (on?(hot?RGB(45,215,110):COL.green):(hot?RGB(96,96,96):RGB(78,78,78)));
+  gr.FillRoundRect(x,y,w,h,rad,rad,track);
+  var ks=h-8, kx=on?(x+w-ks-4):(x+4);
+  gr.FillEllipse(kx,y+4,ks,ks,enabled?COL.text:COL.text3);
+  return {x0:x,y0:y,x1:x+w,y1:y+h};
+}
+
 function winMaxed(){ if(!UIWizard) return false; try{ return UIWizard.WindowState===1; }catch(e){ return false; } }
 function drawCapBtn(gr,glyph,x,w,isClose){
   var hover=hv(x,0,x+w,TBH);
   if(hover) gr.FillSolidRect(x,0,w,TBH,isClose?RGB(232,17,35):RGB(48,48,48));
   tC(gr,glyph,FONT.cap,(hover&&isClose)?COL.text:COL.text2,x,0,w,TBH);
+}
+/* The settings button sits just inside the window controls -- the far corner from the content,
+   where every player of this shape puts it -- but it is drawn as an inset rounded button rather
+   than a flat full-height cell, so it reads as part of the app and not as a fourth caption
+   control next to minimize. Green while the page is open: the same active cue the sidebar's Home
+   and Search buttons use. The hitbox is the full bar height even though the button is inset,
+   because a 32px strip is already a small target. */
+var HB_GEAR=null;
+function drawGearBtn(gr){
+  var gh=Math.max(16,TBH-Math.round(8*UISCALE)), gx=gearX(), gy=Math.round((TBH-gh)/2);
+  var on=(view==='settings'), hov=hv(gx,0,gx+GEARW,TBH);
+  if(on||hov) gr.FillRoundRect(gx,gy,GEARW,gh,6,6,on?COL.rowActive:COL.rowHover);
+  drawIcon(gr,'settings',on?COL.green:(hov?COL.text:COL.text2),gx,gy,GEARW,gh,Math.round(18*UISCALE));
+  HB_GEAR={x0:gx,y0:0,x1:gx+GEARW,y1:TBH};
 }
 function drawTitleBar(gr){
   gr.FillSolidRect(0,0,W,TBH,COL.black);
@@ -188,7 +231,8 @@ function drawTitleBar(gr){
     mx0+=mw;
   }
   if(mx0!==MENU_END){ MENU_END=mx0; applyCaption(); }
-  // window controls (right)
+  // settings + window controls (right)
+  drawGearBtn(gr);
   var closeX=W-CAPBW, maxX=W-CAPBW*2, minX=W-CAPBW*3;
   drawCapBtn(gr,GLYPH.cmin,minX,CAPBW,false);
   drawCapBtn(gr,winMaxed()?GLYPH.crestore:GLYPH.cmax,maxX,CAPBW,false);
@@ -205,10 +249,26 @@ function drawDropPill(gr,x,y,w,h,label,open){
   drawIcon(gr,'chevron',COL.text2,x+w-32,y+(h-20)/2,20,20,18);
   return {x0:x,y0:y,x1:x+w,y1:y+h};
 }
-function drawDropMenu(gr,anchor,items,cur,minW){
+/* maxY/minY, where given, are the edges the menu may not cross -- the panel's own. Nothing clips
+   drawing here (there is no clip API), so a menu running past either one would be stranded on the
+   player bar or the title bar. Preference order: below the anchor, then above it, then clamped into
+   the band, which overlaps the anchor the way any OS menu does when space is tight. A band too
+   short for the whole list tightens the rows rather than dropping any -- an option the user cannot
+   reach is worse than one drawn a few pixels shorter. Callers anchored near the top of a tall view
+   pass neither and behave exactly as before. */
+function drawDropMenu(gr,anchor,items,cur,minW,maxY,minY){
   var out=[];
-  if(!anchor) return out;
-  var bw=Math.max(minW,anchor.x1-anchor.x0), ih=40, bx=anchor.x1-bw, iy=anchor.y1+6, bh=items.length*ih+10;
+  if(!anchor || !items.length) return out;
+  var bw=Math.max(minW,anchor.x1-anchor.x0), bx=anchor.x1-bw, ih=40, lo=(minY===undefined)?8:minY;
+  if(maxY){
+    var band=maxY-lo-10;
+    if(band>0 && items.length*ih>band) ih=Math.max(26,Math.floor(band/items.length));
+  }
+  var bh=items.length*ih+10, iy=anchor.y1+6;
+  if(maxY && iy+bh>maxY){
+    var up=anchor.y0-6-bh;
+    iy=(up>=lo)?up:Math.max(lo,maxY-bh);
+  }
   gr.FillSolidRect(bx+3,iy+4,bw,bh,RGBA(0,0,0,120));
   gr.FillRoundRect(bx,iy,bw,bh,8,8,RGB(43,43,43));
   for(var i=0;i<items.length;i++){
