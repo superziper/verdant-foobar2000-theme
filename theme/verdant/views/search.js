@@ -43,7 +43,7 @@ function drawSearch(gr,r){
   // ---- measure the document, then clamp the scroll to it ----
   var gap=16, cardW=176, cols=Math.max(2,Math.floor((w+gap)/(cardW+gap)));
   cardW=Math.floor((w-gap*(cols-1))/cols);
-  var cardH=cardW+56, rh=56, durW=64;
+  var cardH=artCardH(gr,cardW), rh=56, durW=64;
   var artsH=searchArts.length?(42+Math.ceil(searchArts.length/cols)*(cardH+8)+18):0;
   var contentH=artsH+(searchTrks.length?(38+searchTrks.length*rh):0);
   var maxPx=Math.max(0,contentH-viewH);

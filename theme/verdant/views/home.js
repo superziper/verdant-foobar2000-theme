@@ -7,7 +7,7 @@ function drawHome(gr,r){
   var pad=M.cpad, x0=r.x+pad, w=r.w-pad*2, rightEdge=r.x+r.w, i;
   var gap=16, cardW=176, cols=Math.max(2,Math.floor((w+gap)/(cardW+gap)));
   cardW=Math.floor((w-gap*(cols-1))/cols);
-  var cardH=cardW+56;
+  var cardH=artCardH(gr,cardW);   // artist cards are taller than playlist ones: a 3-line name
   // ---- geometry ----
   var shelfTitleY=r.y+18, shelfY=shelfTitleY+42;
   var pls=visiblePlaylists();
@@ -37,7 +37,7 @@ function drawHome(gr,r){
   if(!artsReady){
     // once the list is built the wait is on artwork, which is deliberate -- show it immediately
     // rather than applying the flash-avoidance delay meant for a build that may finish in a frame
-    if(listReady || skelVisible('arts')){ skelCardsCached(gr,x0,gy,w,cropY-gy,cardW,gap); shimmer(gr,x0,gy,w,cropY-gy); }
+    if(listReady || skelVisible('arts')){ skelCardsCached(gr,x0,gy,w,cropY-gy,cardW,gap,cardH); shimmer(gr,x0,gy,w,cropY-gy); }
   } else {
     for(i=Math.floor(homeScroll/rowStep)*cols; i<arts.length; i++){
       var col=(i%cols), row=Math.floor(i/cols), ay=gy+row*rowStep-homeScroll;
@@ -57,7 +57,7 @@ function drawHome(gr,r){
   HOME_PLMAX=Math.max(0,shelfW-w); HOME_STRIDE=stride;
   plScroll=clampPx(plScroll,HOME_PLMAX); plScrollT=clampPx(plScrollT,HOME_PLMAX);
   if(!shelfReady){
-    skelCardsCached(gr,x0,shelfY,w,scardH,scardW,gap); shimmer(gr,x0,shelfY,w,scardH);
+    skelCardsCached(gr,x0,shelfY,w,scardH,scardW,gap,scardH); shimmer(gr,x0,shelfY,w,scardH);
   } else {
     for(i=Math.floor(plScroll/stride);i<pls.length;i++){
       // snap to whole pixels: the eased offset is fractional, and an antialiased card at a

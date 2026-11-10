@@ -126,25 +126,25 @@ function rowHandlesSongs(){
    the shelf's scroll animation for the same thread. Keyed by geometry; two entries in practice
    (grid and shelf). */
 var skelImgs={};
-function skelCardsCached(gr,x,y,w,h,cardW,gap){
+function skelCardsCached(gr,x,y,w,h,cardW,gap,cardH){
   if(w<=0||h<=0) return;
-  var k=w+'x'+h+'x'+cardW+'x'+gap, im=skelImgs[k];
+  var k=w+'x'+h+'x'+cardW+'x'+gap+'x'+cardH, im=skelImgs[k];   // artist and playlist cards differ in height
   if(im===undefined){
     im=null;
     try{
       im=gdi.CreateImage(w,h); var g=im.GetGraphics();
       g.SetSmoothingMode(2);
       g.FillSolidRect(0,0,w,h,COL.base);
-      skelCards(g,0,0,w,h,cardW,gap);
+      skelCards(g,0,0,w,h,cardW,gap,cardH);
       im.ReleaseGraphics(g);
     }catch(e){ im=null; }
     skelImgs[k]=im;
   }
   if(im) gr.DrawImage(im,x,y,w,h,0,0,w,h);
-  else skelCards(gr,x,y,w,h,cardW,gap);
+  else skelCards(gr,x,y,w,h,cardW,gap,cardH);
 }
-function skelCards(gr,x,y,w,h,cardW,gap){
-  var cardH=cardW+56, cs=cardW-24, cx, cy;
+function skelCards(gr,x,y,w,h,cardW,gap,cardH){
+  var cs=cardW-24, cx, cy;
   for(cy=y; cy<y+h; cy+=cardH+8){
     for(cx=x; cx+cardW<=x+w; cx+=cardW+gap){
       var ch=Math.min(cardH,y+h-cy); if(ch<24) break;

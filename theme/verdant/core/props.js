@@ -95,6 +95,10 @@ function applyUIScale(raw){
   UISCALE=resolveScale(raw);
   FONT=buildFonts();
   LH_F=[]; LH_V=[];
+  /* Anything baked from the old fonts is now the wrong size, not merely the wrong weight: the
+     artist card derives its HEIGHT from the font, so a stale bitmap would tile the grid at the
+     previous pitch. on_size clears these for the same reason; a scale change needs it too. */
+  artTextH_=0; plCardCache={}; artCardCache={}; artCardN=0; skelImgs={};
   chromeMetrics();
   layout();
   repaintAll();
