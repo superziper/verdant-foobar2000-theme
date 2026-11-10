@@ -86,7 +86,7 @@ function drawRgPrompt(gr){
    applying them), so it can never claim to be on while doing nothing. */
 function drawNormalizePill(gr,x,y,w,h){
   var on=rgActive(), hot=hv(x,y,x+w,y+h);
-  gr.FillRoundRect(x,y,w,h,h/2,h/2,on?(hot?RGB(45,215,110):COL.green):(hot?RGB(58,58,58):RGBA(0,0,0,90)));
+  gr.FillRoundRect(x,y,w,h,h/2,h/2,on?(hot?COL.greenH:COL.green):(hot?RGB(58,58,58):RGBA(0,0,0,90)));
   var col=on?COL.black:COL.text;
   drawIcon(gr,'equalizer',col,x+14,y+(h-20)/2,20,20,18);
   tL(gr,'Normalize volume',FONT.pl,col,x+42,y,w-56,h);

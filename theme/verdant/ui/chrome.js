@@ -146,7 +146,7 @@ function drawOverlays(gr){
     RENAME_HB={
       panel:{x0:rx0,y0:ry0,x1:rx0+rw,y1:ry0+rhh},
       cancel:dlgBtn(gr,ccx,by,bw,bh,'Cancel',RGB(52,52,52),RGB(66,66,66),COL.text),
-      save:dlgBtn(gr,dx,by,bw,bh,'Save',canSave?COL.green:RGB(60,92,74),canSave?RGB(45,215,110):RGB(60,92,74),canSave?COL.black:COL.text3),
+      save:dlgBtn(gr,dx,by,bw,bh,'Save',canSave?COL.green:RGB(60,92,74),canSave?COL.greenH:RGB(60,92,74),canSave?COL.black:COL.text3),
       canSave:canSave
     };
   }
@@ -190,10 +190,22 @@ function tPara(gr,s,f,c,x,y,w,lh){
    A capsule track with a knob, rather than a checkbox: at a glance the colour says which state
    you are in, which a 13px tick in a dark theme does not. A disabled switch draws dim and its
    caller draws no hitbox for it, so a setting the theme cannot actually deliver (Discord with no
-   component installed) can't be switched into a state that would be a lie. */
+   component installed) can't be switched into a state that would be a lie.
+
+   Every colour here is a palette token:
+   - OFF is COL.seekbg, the same grey the seek and volume rails use. A switch track IS an
+     inactive rail; it has no business inventing its own grey a shade off that one.
+   - the knob stays WHITE in both states. It is the one part that moves, so it reads as a single
+     object sliding along the track, and the TRACK is what carries the state. Recolouring it per
+     state would make the moving part look like two different things.
+   Disabled is the rail faded into the page rather than another hardcoded grey, so it stays
+   recognisably the same control, with only the knob dropping to COL.text3. */
+var SW_OFFDIM=blend(COL.seekbg,COL.base,0.72);
 function drawSwitch(gr,x,y,w,h,on,enabled){
   var rad=h/2, hot=enabled&&hv(x,y,x+w,y+h);
-  var track=!enabled ? RGB(44,44,44) : (on?(hot?RGB(45,215,110):COL.green):(hot?RGB(96,96,96):RGB(78,78,78)));
+  var track=!enabled ? SW_OFFDIM
+          : on ? (hot?COL.greenH:COL.green)
+               : (hot?COL.text3:COL.seekbg);
   gr.FillRoundRect(x,y,w,h,rad,rad,track);
   var ks=h-8, kx=on?(x+w-ks-4):(x+4);
   gr.FillEllipse(kx,y+4,ks,ks,enabled?COL.text:COL.text3);

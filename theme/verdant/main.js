@@ -29,12 +29,16 @@ var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view 
 var DLGC_WANTCHARS=0x0080;     // capture character keys only -- enough for Space = play/pause
 
 /* ---- load order ------------------------------------------------------------
-   Only three edges here are load-time rather than call-time, and they are the
-   reason this is a list and not an alphabetical glob:
-     props  -> tokens   fonts are built from UISCALE the moment tokens loads
-     props  -> chrome   the title-bar height is derived from UISCALE too
-     memory -> skeleton the reveal gate's ceiling is derived from ART_CAP
-   Everything else is functions calling functions, and is order-free.
+   Most of this is functions calling functions and would be order-free. These
+   edges are not -- they are evaluated the moment the module loads, and they are
+   the reason this is a list and not an alphabetical glob:
+     props       -> tokens      fonts are built from UISCALE the moment tokens loads
+     props       -> chrome      the title-bar height is derived from UISCALE too
+     memory      -> skeleton    the reveal gate's ceiling is derived from ART_CAP
+     tokens+util -> chrome      SW_OFFDIM bakes a blend of two palette colours
+     tokens+util -> fullscreen  VIZ_PEAK does the same
+   The last two are one rule rather than two special cases: anything that bakes
+   a colour constant at load needs COL and blend() to be there already.
    Paths are relative to this file: JSplitter resolves include() against the
    including script's own folder. */
 include('core/props.js');

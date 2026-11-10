@@ -12,7 +12,7 @@ function RGBA(r,g,b,a){ return ((a<<24)|(r<<16)|(g<<8)|b); }
 var COL = {
   black:RGB(0,0,0), base:RGB(18,18,18), elev:RGB(24,24,24), hover:RGB(42,42,42),
   text:RGB(255,255,255), text2:RGB(179,179,179), text3:RGB(106,106,106),
-  green:RGB(30,215,96), greenC:RGB(29,185,84),
+  green:RGB(30,215,96), greenH:RGB(45,215,110), greenC:RGB(29,185,84),   // greenH: green under the cursor
   rowHover:RGBA(255,255,255,18), rowActive:RGBA(255,255,255,38),
   line:RGBA(255,255,255,28), seekbg:RGB(77,77,77)
 };
