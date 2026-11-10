@@ -78,7 +78,7 @@ function artistCover(name,fallback){
 // false while the scan can still move the choice: baking a card now would freeze its placeholder
 function artistCoverReady(name,fallback){ return coverPick('ar|'+name,artistCands(name,fallback),1).done; }
 function loadArtist(name){
-  viewArtist=name; artScroll=0; artistAlbums=[];
+  viewArtist=name; artScroll=artScrollT=0; artistAlbums=[];
   var lib=libItems();
   if(!lib || !lib.Count) return;
   var arts=libTF('artistName'), albs=libTF('album'),

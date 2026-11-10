@@ -55,13 +55,14 @@ var firstRow=0, hoverKey='', scrollKey='', hoverZoneKey='', mx=-1, my=-1, drag=n
 // eased scrolling: animate each rendered position toward its target, repainting only the moving region
 var firstRowT=0, navScrollT=0, homeScrollT=0, PL_MAXPX=0, scrollTimer=null;
 function scrollTick(){
-  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll, d6=plScrollT-plScroll, d7=cfgScrollT-cfgScroll;
+  var mm=false, nm=false, d1=firstRowT-firstRow, d2=navScrollT-navScroll, d3=homeScrollT-homeScroll, d4=songsScrollT-songsScroll, d5=searchScrollT-searchScroll, d6=plScrollT-plScroll, d7=cfgScrollT-cfgScroll, d8=artScrollT-artScroll;
   if(Math.abs(d1)>=0.5){ firstRow+=d1*0.25; mm=true; } else firstRow=firstRowT;
   if(Math.abs(d3)>=0.5){ homeScroll+=d3*0.25; mm=true; } else homeScroll=homeScrollT;
   if(Math.abs(d4)>=0.5){ songsScroll+=d4*0.25; mm=true; } else songsScroll=songsScrollT;
   if(Math.abs(d5)>=0.5){ searchScroll+=d5*0.25; mm=true; } else searchScroll=searchScrollT;
   if(Math.abs(d6)>=0.5){ plScroll+=d6*0.25; mm=true; } else plScroll=plScrollT;
   if(Math.abs(d7)>=0.5){ cfgScroll+=d7*0.25; mm=true; } else cfgScroll=cfgScrollT;
+  if(Math.abs(d8)>=0.5){ artScroll+=d8*0.25; mm=true; } else artScroll=artScrollT;
   if(Math.abs(d2)>=0.5){ navScroll+=d2*0.25; nm=true; } else navScroll=navScrollT;
   if(mm) repaintMain();
   if(nm) repaintNav();
@@ -83,7 +84,7 @@ var plDropHover=false, HB_PLADD_FILES=null, HB_PLADD_FOLDER=null;   // empty-pla
 var HB_DOTS=[], ctxMenu=null, CTX_HB=[], renameEdit=null, confirmDel=null, CONF_HB=null, RENAME_HB=null;
 
 var rightTab='queue';
-var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0;
+var view='home', viewArtist='', artistAlbums=[], homeScroll=0, artScroll=0, artScrollT=0;
 /* The gear TOGGLES rather than only opening: it is the same button in both states, so a second
    click putting you back where you came from is what anyone expects of it. prevView is only ever
    a real destination -- never 'settings' itself -- so the button can't bounce between two
@@ -104,7 +105,7 @@ var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:DLGC_WANTCHARS; }catch(e){} }
 
 var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
-var HOME_MAXROW=0, ART_MAXBLOCK=0, SEARCH_MAXPX=0;
+var HOME_MAXROW=0, ART_MAXPX=0, SEARCH_MAXPX=0;
 // Home "Your Playlists" horizontal shelf: pixel scroll offset + eased target, max, wheel hit-band, h-scrollbar.
 var plScroll=0, plScrollT=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
 // The shelf glides freely but always *targets* a card boundary, so the leftmost card keeps its
@@ -484,6 +485,7 @@ function scrollSection(x,y){
     if(view==='songs') return 'songs';
     if(view==='search') return 'srch';
     if(view==='settings') return 'set';
+    if(view==='artist') return 'art';
   }
   return '';
 }
@@ -545,7 +547,7 @@ function on_mouse_wheel(step){
   else if(view==='songs'){ songsScrollT=clampPx(songsScrollT-step*WHEEL_PX,SONGS_MAXPX); startScrollAnim(); return; }
   else if(view==='settings'){ cfgScrollT=clampPx(cfgScrollT-step*WHEEL_PX,CFG_MAXPX); startScrollAnim(); return; }
   else if(view==='search'){ searchScrollT=clampPx(searchScrollT-step*WHEEL_PX,SEARCH_MAXPX); startScrollAnim(); return; }
-  else if(view==='artist'){ artScroll=clampPx(artScroll-step,ART_MAXBLOCK); repaintAll(); return; }
+  else if(view==='artist'){ artScrollT=clampPx(artScrollT-step*WHEEL_PX,ART_MAXPX); startScrollAnim(); return; }
   firstRowT=clampPx(firstRowT-step*WHEEL_PX,PL_MAXPX); startScrollAnim();
 }
 /* ---- drag & drop external files: two targets, the library section (-> new playlist) and the

@@ -64,6 +64,7 @@ function setScroll(y){
   else if(view==='songs') songsScroll=songsScrollT=px;
   else if(view==='search') searchScroll=searchScrollT=px;
   else if(view==='settings') cfgScroll=cfgScrollT=px;
+  else if(view==='artist') artScroll=artScrollT=px;
   repaintMain();
 }
 function setScrollN(y){ if(!SBN) return; navScroll=navScrollT=Math.round(sbFrac(y,SBN.top,SBN.h,SBN.thumbH)*SBN.maxPx); repaintNav(); }
