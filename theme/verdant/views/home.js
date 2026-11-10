@@ -18,7 +18,7 @@ function drawHome(gr,r){
   // names and counts are available immediately, so it renders real cards straight away and its
   // covers fill in as they arrive, which is what Spotify does with data it already has.
   var listReady=ensureBuilt('arts',function(){ return artistList!==null; },
-                            function(){ return [function(){ libTF('artistName'); },function(){ getArtistList(); }]; });
+                            function(){ return [function(){ libTF('artistMulti'); },function(){ getArtistList(); }]; });
   var arts=listReady?artistList:[];
   /* The shelf holds its reveal until its covers are in: a 2x2 mosaic with two of four albums looks
      broken rather than merely unfinished, and it is only ~20 cards, so the wait is about a second.

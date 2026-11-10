@@ -158,6 +158,41 @@ Sidebar and queue-pane widths are still code: `M.navW` / `M.queueW` in
 
 ---
 
+## Collaborations
+
+A track credited to several artists shows up under **each** of them, and an artist never appears
+twice. Verdant works that out in two steps, and only one of them involves a judgement call.
+
+**1. How many artists a track has comes from the file, and only from the file.**
+
+FLAC/Vorbis and ID3v2.4 can store several values in one `ARTIST` or `ALBUM ARTIST` field. Verdant
+reads those values as written — three values, three artists. It does **not** try to take a single
+value apart on punctuation, so a track tagged `Ariana Grande, Justin Bieber` as one string is one
+artist, and gets its own card.
+
+That is deliberate. Splitting on `,` `&` `feat.` works most of the time, and the times it fails are
+invisible: `TOMORROW X TOGETHER`, `HUNTR/X`, `K/DA`, `Dan + Shay` and `Andra, The Backbone` all
+contain something that looks like a separator, and a card that has been quietly torn in half looks
+exactly like a correct one. A collab string sitting there whole is obvious, and fixing it at the
+source fixes it in **every** player, not just this one.
+
+> **Seeing `A, B` as an artist?** That track stores both names in a single tag value. Retag it with
+> two values — in foobar: select the track → **Properties** → the `ARTIST` field → put each artist on
+> its own line. Picard and most taggers write multi-value tags correctly by default.
+
+**2. Different spellings of the same artist are folded together.**
+
+`BLACKPINK` / `Blackpink` / `BLACKPINK (블랙핑크)` are one artist, as are `Anne-Marie` and
+`Anne‐Marie` (different Unicode dashes). The spelling your library uses most becomes the label. A
+*trailing* bracket is treated as an alias and dropped — leading ones are kept, so `(G)I-DLE`
+survives.
+
+> **Note:** this applies to the artist grid, search and artist pages. **All Songs → group by
+> artist** still groups on the raw tag, because one track cannot sit in two groups of a single
+> flat list.
+
+---
+
 ## Normalize volume
 
 **All Songs → Normalize volume** makes every track in your library play back at the same loudness.

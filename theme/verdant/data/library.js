@@ -33,19 +33,90 @@ function libTF(field){
   libTFCache[field]=out; return out;
 }
 
-/* ------------------------- library-backed artist list ------------------------- */
+/* ------------------------- credited artists -------------------------
+   Two jobs, kept separate below because each fails differently:
+     1. artistsOf     -- read the artists a tag credits, straight from the file's own values
+     2. artistKey     -- decide when two names are the same act spelled differently
+   and getArtistList groups the library by that key and elects a name to show.
+
+   Only the second is a judgement call. Separation is not guessed at all -- see artistsOf. */
+
+/* One tag value -> every artist it credits.
+
+   This is the whole of it: the file says how many artists there are, and the panel believes it.
+   FLAC/Vorbis and ID3v2.4 can hold several values in one field, TF.artistMulti hands them over
+   already separated, and that is the only place a split comes from.
+
+   What is deliberately NOT done: guessing. An earlier version took "A, B" apart on punctuation,
+   with a list of exceptions for the acts that punctuation would have ruined -- TOMORROW X
+   TOGETHER, HUNTR/X, Dan + Shay, Andra, The Backbone. It worked most of the time, and that was
+   the problem: a card you cannot tell apart from a correct one is worse than a visibly wrong
+   one, because nothing tells you which of the two you are looking at. "Ariana Grande, Justin
+   Bieber" sitting there as one artist is obviously a tagging artifact and is fixed by retagging
+   the file, which then reads correctly in every player rather than only in this one.
+
+   So a punctuated single value stays one artist, on purpose. */
+function artistsOf(value){
+  var raw=value.split(ART_MV), out=[], i, t;
+  for(i=0;i<raw.length;i++){ t=raw[i].replace(/^\s+|\s+$/g,''); if(t) out.push(t); }
+  return out;
+}
+
+/* The key two spellings of the same act share. Folds case, the Unicode dashes (a library picks up
+   both "Anne-Marie" and "Anne\u2010Marie" without anyone noticing), and a TRAILING bracketed alias --
+   "IU (\uc544\uc774\uc720)" is IU, "LIA (ITZY)" is LIA. Trailing only: "(G)I-DLE" wears its brackets at the
+   front and has to survive intact. */
+function artistKey(name){
+  var s=name.replace(/^\s+|\s+$/g,'');
+  var t=s.replace(/\s*\([^()]*\)\s*$/,'').replace(/^\s+|\s+$/g,'');
+  if(t) s=t;                                   // a name that is ONLY a bracket keeps its brackets
+  s=s.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g,'-');
+  s=s.replace(/\s+/g,' ');
+  return s.toLowerCase();
+}
+/* Which spelling to show for a folded group: the one the library uses most. Ties go to the
+   shorter name, so "IU" beats "IU (\uc544\uc774\uc720)", then to the lower one so the choice is stable
+   rather than dependent on scan order. */
+function electSpelling(counts){
+  var best=null, bn=-1, s, c;
+  for(s in counts){
+    c=counts[s];
+    if(c>bn || (c===bn && (s.length<best.length || (s.length===best.length && s<best)))){ best=s; bn=c; }
+  }
+  return best;
+}
+
+/* artistTracksMap holds library INDICES, not handles: loadArtist needs each track's album, title
+   and year out of the libTF arrays, which are indexed the same way, and artistCands only ever
+   wanted lib[i] anyway. */
 var artistList=null, artistTracksMap=null, artistCandCache={};
 function getArtistList(){
   if(artistList) return artistList;
   var lib=libItems();
   var out=[]; artistTracksMap={};
   if(lib && lib.Count){
-    var names=libTF('artistName'), seen={};
-    for(var i=0;i<names.length;i++){
-      var nm=names[i]; if(!nm) continue;
-      if(!artistTracksMap[nm]) artistTracksMap[nm]=[];
-      artistTracksMap[nm].push(lib[i]);
-      if(!seen[nm]){ seen[nm]=1; out.push({name:nm, handle:lib[i]}); }
+    var names=libTF('artistMulti');
+    if(!names.length) names=libTF('artistName');   // $meta_sep unavailable -> the old field, still split
+    var byKey={}, i, j, parts, nm, k, e, here;
+    for(i=0;i<names.length;i++){
+      if(!names[i]) continue;
+      parts=artistsOf(names[i]);
+      here={};                                     // one track credits an artist once, however spelled
+      for(j=0;j<parts.length;j++){
+        nm=parts[j]; k=artistKey(nm);
+        if(!k || here[k]) continue;
+        here[k]=1;
+        e=byKey[k];
+        if(!e) e=byKey[k]={first:i, tracks:[], spell:{}};
+        e.tracks.push(i);
+        e.spell[nm]=(e.spell[nm]||0)+1;
+      }
+    }
+    for(k in byKey){
+      e=byKey[k];
+      var disp=electSpelling(e.spell);
+      out.push({name:disp, handle:lib[e.first], key:k});
+      artistTracksMap[disp]=e.tracks;
     }
     out.sort(function(a,b){ var an=a.name.toLowerCase(), bn=b.name.toLowerCase(); return an<bn?-1:(an>bn?1:0); });
   }
@@ -60,16 +131,20 @@ function artistCands(name,fallback){
   if(artistCandCache.hasOwnProperty(name)) return artistCandCache[name];
   var list=artistTracksMap?artistTracksMap[name]:null, out=[], seen={}, i, h, k;
   if(!list) return fallback?[fallback]:[];   // map not built yet -> guess, but don't cache the guess
+  var lib=libItems();                        // the map holds indices now, not handles
   var cap=Math.min(list.length,ARTIST_CAND_SCAN);
   for(i=0;i<cap && out.length<COVER_CANDS;i++){
-    h=list[i]; if(!h) continue; k=albKey(h); if(seen[k]) continue;
+    h=lib?lib[list[i]]:null; if(!h) continue; k=albKey(h); if(seen[k]) continue;
     seen[k]=1; out.push(h);
   }
   if(!out.length && fallback) out.push(fallback);
   artistCandCache[name]=out; return out;
 }
 // the bulk warm pass's cheap guess -- no candidate scan, no album dedupe
-function artistFirst(name,fallback){ var l=artistTracksMap?artistTracksMap[name]:null; return (l&&l.length)?l[0]:fallback; }
+function artistFirst(name,fallback){
+  var l=artistTracksMap?artistTracksMap[name]:null, lib=(l&&l.length)?libItems():null;
+  return (lib&&lib[l[0]])?lib[l[0]]:fallback;
+}
 function artistCover(name,fallback){
   var c=artistCands(name,fallback), p=coverPick('ar|'+name,c,1);
   if(p.list.length) return p.list[0];
@@ -77,15 +152,20 @@ function artistCover(name,fallback){
 }
 // false while the scan can still move the choice: baking a card now would freeze its placeholder
 function artistCoverReady(name,fallback){ return coverPick('ar|'+name,artistCands(name,fallback),1).done; }
+/* The artist's tracks come from the map getArtistList already built, not from a second pass
+   comparing strings. That pass is what made a collaboration a dead end: the grid offered
+   "JISOO & ZAYN" as one card, and clicking JISOO found no track tagged exactly "JISOO". */
 function loadArtist(name){
   viewArtist=name; artScroll=artScrollT=0; artistAlbums=[];
   var lib=libItems();
   if(!lib || !lib.Count) return;
-  var arts=libTF('artistName'), albs=libTF('album'),
-      titles=libTF('title'), lens=libTF('len'), yrs=libTF('year');
-  var map={}, order=[];
-  for(var i=0;i<arts.length;i++){
-    if(arts[i]!==name) continue;
+  getArtistList();                                   // builds artistTracksMap alongside the list
+  var idx=artistTracksMap?artistTracksMap[name]:null;
+  if(!idx || !idx.length) return;
+  var albs=libTF('album'), titles=libTF('title'), lens=libTF('len'), yrs=libTF('year');
+  var map={}, order=[], n, i;
+  for(n=0;n<idx.length;n++){
+    i=idx[n];
     var al=albs[i]||'Unknown Album';
     if(!map[al]){ map[al]={album:al, handle:lib[i], year:yrs[i], tracks:[]}; order.push(al); }
     map[al].tracks.push({title:titles[i], dur:lens[i], handle:lib[i]});
