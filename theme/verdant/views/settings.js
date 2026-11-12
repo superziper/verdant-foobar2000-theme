@@ -10,11 +10,11 @@
 
    Every control writes through an apply* function in core/props.js, which updates the stored
    property AND the running value. Nothing here needs a panel reload -- not even UI scale.
-   Right-click > Properties still edits the same four values; this is simply the way in that
+   Right-click > Properties still edits the same values; this is simply the way in that
    doesn't require knowing that. */
 
 var cfgScroll=0, cfgScrollT=0, CFG_MAXPX=0;         // page scroll (eased, same model as the other views)
-var cfgMenu=null, CFG_PILL=[], CFG_HB=[], CFG_SWITCH=null;   // open dropdown key, pill targets, menu items, switch
+var cfgMenu=null, CFG_PILL=[], CFG_HB=[], CFG_SWITCH=[], CFG_BTN=[];   // open dropdown key, pill/menu/switch/button targets
 /* The whole row is the target, not just the control in it: the control sits at the far right of a
    wide panel, and a hover cue that spans the row is only honest if the row acts on a click too.
    The pill and the switch keep hitboxes of their own regardless -- they are what hoverSig needs to
@@ -32,6 +32,11 @@ function cfgScaleOpts(){
 }
 var CFG_CEIL=[['Full range (0 dB)',0],['-3 dB',-3],['-6 dB',-6],['-12 dB',-12],['-20 dB',-20],['-30 dB',-30]];
 var CFG_WHEEL=[['Slow (90 px)',90],['Normal (180 px)',180],['Fast (300 px)',300],['Very fast (480 px)',480]];
+/* Album counts, not just byte counts: MB is the unit the setting is in, but albums is the unit the
+   question is actually about. They come from the measured ~63KB a cached 500px cover takes, so they
+   are honest rather than round. */
+var CFG_CACHE_MB=[['128 MB (~2,000 albums)',128],['512 MB (~8,000 albums)',512],
+                  ['1 GB (~16,000 albums)',1024],['4 GB (~65,000 albums)',4096],['No limit',0]];
 
 /* The fallback label is the live value, not a guess: these four are editable from the Properties
    dialog too, so the page has to be able to show -8 dB honestly rather than claiming one of its
@@ -47,7 +52,17 @@ function cfgModel(){
      items:CFG_WHEEL, val:WHEEL_PX,     text:labelOf(CFG_WHEEL,WHEEL_PX,WHEEL_PX+' px')},
     {k:'drp',   label:'Discord presence',  kind:'switch', on:DRP_ON, enabled:drpPresent,
      desc:drpPresent ? 'Shows the playing track on your Discord profile.'
-                     : 'Needs the foo_verdant component, which is not installed.'}
+                     : 'Needs the foo_verdant component, which is not installed.'},
+    {k:'cache', label:'Cache artwork on disk', kind:'switch', on:ARTDISK_ON, enabled:true,
+     desc:'Keeps covers between restarts instead of re-reading them from your library every launch.'},
+    /* The size is in the label rather than the description because it is the one fact that makes
+       this click informed, and a button whose label says what it will throw away needs no
+       confirmation dialog on top -- a cache can only ever cost a refetch. */
+    {k:'cachemb', label:'Cache size limit', items:CFG_CACHE_MB, val:ARTDISK_MB,
+     text:labelOf(CFG_CACHE_MB,ARTDISK_MB,ARTDISK_MB?fmtBytes(ARTDISK_MB*1048576):'No limit'),
+     desc:'The most disk the cover cache may use. Over it, the covers you looked at longest ago go first.'},
+    {k:'clear', label:'Cached artwork', kind:'button', btn:'Clear'+(artDiskUsage()?' ('+fmtBytes(artDiskUsage())+')':''),
+     enabled:artDiskUsage()>0, desc:artDiskUsageText()}
   ];
 }
 
@@ -55,7 +70,7 @@ function cfgModel(){
    that this page is used at every scale, including to climb back down from one that turned out
    too large to read. lineH is identity-cached per font, so this costs nothing per frame. */
 function drawSettings(gr,r){
-  CFG_PILL=[]; CFG_SWITCH=null; CFG_ROWS=[];
+  CFG_PILL=[]; CFG_SWITCH=[]; CFG_BTN=[]; CFG_ROWS=[];
   var lx=r.x+M.cpad, w=r.w-M.cpad*2, cropY=r.y+r.h;
   var lhL=lineH(gr,FONT.pl), lhD=lineH(gr,FONT.plSub);
   var rowH=lhL+lhD+40, ph=Math.max(36,lhL+18), pw=Math.min(Math.round(w*0.42),Math.max(200,Math.round(260*UISCALE)));
@@ -83,8 +98,19 @@ function drawSettings(gr,r){
     // hover cue across the whole row: the control is on the far right of a wide panel, and the
     // band is what ties it back to the label it belongs to
     var bt=Math.max(ry+4,top), bb=Math.min(ry+rowH-4,cropY);   // clamped: a row half under the header must not answer the mouse there
-    if(bb>bt){
-      if(hv(lx-8,bt,lx+w+8,bb)) gr.FillRoundRect(lx-8,bt,w+16,bb-bt,8,8,RGBA(255,255,255,10));
+    /* A button row is the exception to the whole-row rule above, and on purpose. The argument
+       for a row-wide target is that a row-wide hover cue has to be honest -- but it cuts the
+       other way for an action that destroys something: a stray click anywhere along a 56px band
+       should not empty the cache. So a button row gets neither the band nor the hitbox, and its
+       button is the only thing that answers. */
+    /* bb-bt rather than bb>bt: a row scrolling under the header is clamped to whatever sliver is
+       still below it, and an 8px corner needs 16px of height to exist in. One pixel of hover cue
+       is not worth drawing anyway, so the band is simply skipped -- but the row stays a target. */
+    if(bb-bt>=2 && row.kind!=='button'){
+      if(hv(lx-8,bt,lx+w+8,bb)){
+        var brad=roundRad(w+16,bb-bt,8);
+        gr.FillRoundRect(lx-8,bt,w+16,bb-bt,brad,brad,RGBA(255,255,255,10));
+      }
       CFG_ROWS.push({x0:lx-8,y0:bt,x1:lx+w+8,y1:bb,k:row.k,kind:row.kind,enabled:row.enabled});
     }
     var ty=ry+Math.round((rowH-lhL-lhD-4)/2), tw=Math.max(40,w-pw-28);
@@ -93,7 +119,14 @@ function drawSettings(gr,r){
     if(row.kind==='switch'){
       var sw=Math.round(ph*1.55), sx=lx+w-sw;
       var hbs=drawSwitch(gr,sx,cy+Math.round((ph-ph*0.72)/2),sw,Math.round(ph*0.72),row.on,row.enabled);
-      if(row.enabled) CFG_SWITCH=hbs;        // disabled: drawn, but not a target
+      if(row.enabled) CFG_SWITCH.push(hbs);  // disabled: drawn, but not a target
+    } else if(row.kind==='button'){
+      // same capsule the modal dialogs use, in the neutral (Cancel) weight: this is not a primary
+      // action and should not read like one. Disabled draws with hover == rest, so it stays inert.
+      var bw2=Math.min(Math.round(w*0.42),Math.max(140,Math.round(170*UISCALE))), bx2=lx+w-bw2;
+      var hbb=dlgBtn(gr,bx2,cy,bw2,ph,row.btn,row.enabled?RGB(52,52,52):RGB(44,44,44),
+                     row.enabled?RGB(66,66,66):RGB(44,44,44),row.enabled?COL.text:COL.text3);
+      if(row.enabled){ hbb.k=row.k; CFG_BTN.push(hbb); }
     } else {
       var anchor=drawDropPill(gr,lx+w-pw,cy,pw,ph,row.text,cfgMenu===row.k);
       anchor.k=row.k; CFG_PILL.push(anchor);
@@ -115,8 +148,23 @@ function drawSettings(gr,r){
 
 /* A click anywhere on a row. A switch flips; anything else opens its dropdown. */
 function cfgClickRow(row){
-  if(row.kind==='switch'){ if(row.enabled) applyDrpOn(!DRP_ON); return; }
+  if(row.kind==='switch'){ if(row.enabled) cfgToggle(row.k); return; }
   cfgMenu=row.k; repaintAll();
+}
+/* The switch counterpart of cfgApply: the key says which setting was flipped and core/props.js
+   owns what that means. Keyed dispatch rather than a handler stored on the row, because cfgModel()
+   is rebuilt on every paint -- a closure per row would allocate on every frame. */
+function cfgToggle(k){
+  if(k==='drp')        applyDrpOn(!DRP_ON);
+  else if(k==='cache') applyArtDiskOn(!ARTDISK_ON);
+  else repaintAll();
+}
+/* Buttons, same keyed dispatch as the switches and the dropdowns. A full repaint rather than
+   repaintMain: the label it was just clicked through is part of the row it sits in, and the row's
+   description changes with it. */
+function cfgButton(k){
+  if(k==='clear') artDiskClear();
+  repaintAll();
 }
 /* One entry point for every dropdown on the page: the key says which setting was picked, and
    core/props.js owns what that means. Each apply* repaints. */
@@ -125,5 +173,6 @@ function cfgApply(k,v){
   if(k==='scale')      applyUIScale(v);
   else if(k==='ceil')  applyVolCeil(v);
   else if(k==='wheel') applyWheelPx(v);
+  else if(k==='cachemb') applyArtDiskMB(v);
   else repaintAll();
 }

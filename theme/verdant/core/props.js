@@ -12,7 +12,7 @@
    They are WRITTEN from the Settings page (views/settings.js, title bar > gear), through the
    apply* functions at the bottom of this file. Each of those updates the running value as well as
    the stored one, so no setting needs a panel reload any more. Right-click > Properties still
-   works and still shows the same four values -- it is simply no longer the only way in. */
+   works and still shows the same values -- it is simply no longer the only way in. */
 function propNum(name,dflt){
   var v=dflt;
   try{ v=window.GetProperty(name,dflt); }catch(e){ v=dflt; }
@@ -27,7 +27,9 @@ var PROP={
   scale:'Display: UI scale (0 = auto)',
   ceil :'Playback: output ceiling (dB below max)',
   wheel:'Scrolling: wheel step (px)',
-  drp  :'Discord: show the playing track (1 = on)'
+  drp  :'Discord: show the playing track (1 = on)',
+  cache:'Artwork: cache covers on disk (1 = on)',
+  cachemb:'Artwork: disk cache limit (MB, 0 = no limit)'
 };
 function propSet(name,val){ try{ window.SetProperty(name,val); }catch(e){} }
 
@@ -75,6 +77,28 @@ var WHEEL_PX = Math.max(20, propNum(PROP.wheel, 180));
    data is published and no connection to the Discord client is opened at all. Does nothing if
    foo_verdant is not installed. See data/discord.js. */
 var DRP_ON = propNum(PROP.drp, 1) > 0;
+
+/* Keep decoded covers on disk as well as in memory, so they survive a restart. See
+   data/artdisk.js for what that buys and what it costs; the short version is that artCache is
+   unchanged and always runs, and this only decides whether an artCache MISS is served from a
+   local file or re-read from the library.
+
+   On by default. It writes to the profile folder without being asked, which is not nothing --
+   but it degrades nothing either, it is bounded, and the people it helps most (a library on a
+   NAS, where every cover is a network round trip) are exactly the ones least likely to go
+   looking for a setting to turn on. Turning it off genuinely turns it off: no reads, no writes,
+   and artCache behaves exactly as it did before the cache existed. */
+var ARTDISK_ON = propNum(PROP.cache, 1) > 0;
+
+/* How much disk the cover cache may use, in MB; 0 means no limit, the same idiom PROP.scale uses
+   for auto. Over it, the covers gone longest without being looked at are removed first.
+
+   1GB by default, which is about 16,000 albums at the ~63KB a 500px cover actually encodes to --
+   comfortably more than most libraries and still a number nobody would be upset to find on their
+   disk. The figure is measured rather than estimated: GdiBitmap.SaveAs takes a path and a format
+   and nothing else, so the JPEG quality is whatever GDI+ picks and cannot be tuned down from here.
+   Clamped at 0, since a negative budget would evict everything on every write. */
+var ARTDISK_MB = Math.max(0, propNum(PROP.cachemb, 1024));
 
 /* ------------------------- live apply -------------------------
    One function per setting, each the single place that writes the property AND updates the
@@ -125,5 +149,27 @@ function applyDrpOn(on){
   propSet(PROP.drp,on?1:0);
   DRP_ON=!!on;
   drpSync();
+  repaintMain();
+}
+/* Deliberately does NOT touch artCache. The in-memory tier is valid whichever way this goes, and
+   clearing it would drop every cover on screen to a placeholder and re-gate every section -- a
+   visible fault conjured out of a settings click. Off stops reads AND writes and drops the pending
+   write queue, so "off" is the behaviour that existed before the cache did. */
+function applyArtDiskOn(on){
+  propSet(PROP.cache,on?1:0);
+  // Order matters on the way DOWN: artDiskSuspend flushes the index, and the flush has to happen
+  // while the cache still counts as live or the entries written in the last few seconds are lost.
+  if(on){ ARTDISK_ON=true; artDiskResume(); }
+  else  { artDiskSuspend(); ARTDISK_ON=false; }
+  repaintMain();
+}
+/* Lowering the limit applies at once rather than at the next launch: a budget that waits is
+   indistinguishable from one that was ignored, and the whole reason to touch this control is
+   wanting the disk back. Raising it evicts nothing, so it is free. */
+function applyArtDiskMB(mb){
+  mb=Math.max(0,mb);
+  propSet(PROP.cachemb,mb);
+  ARTDISK_MB=mb;
+  artDiskEnforce();
   repaintMain();
 }

@@ -49,6 +49,7 @@ include('core/memory.js');
 include('core/jobs.js');
 
 include('data/art.js');
+include('data/artdisk.js');
 include('data/library.js');
 include('data/playback.js');
 include('data/lyrics.js');

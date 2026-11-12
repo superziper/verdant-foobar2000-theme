@@ -97,15 +97,38 @@ function artDone(key,img){
   delete artPending[key];
   artInFlight--; pumpArt();
 }
+/* There are three tiers now, and this is the only function that knows it: the on-disk cache
+   (data/artdisk.js) sits between artCache and the source, so a miss on a cover seen in an earlier
+   session costs a ~1ms local read instead of a ~48ms decode-and-resize from the library. An L2 hit
+   also skips the Resize below, because what is stored is already no wider than ART_MAXPX -- and
+   that resize is the part that runs on this thread. With the cache off artDiskGet returns null and
+   this is the function it always was. */
 function startArt(h,key){
+  var d=artDiskGet(h,key);
+  if(d==='neg'){ artStatNeg++; artDone(key,null); return; }     // known to have no art at all: no I/O
+  if(d==='img'){ artDiskRead(h,key); return; }    // falls back to the source itself on a bad file
+  startArtSource(h,key);
+}
+/* The one function in the theme that reads artwork from the library. Everything above it exists
+   to avoid calling it: it is ~48ms of CPU on a local disk and a network round trip for ~1.7MB on a
+   NAS, per album, per launch. artStatSrc counts the calls and artStatSrcMs their wall cost, which
+   together are the answer to issue #2 -- see the summary in data/artdisk.js. */
+function startArtSource(h,key){
+  var t0=Date.now();
+  artStatSrc++;
   try{
     utils.GetAlbumArtAsyncV2(0,h,0,false,false,false).then(function(res){
+      artStatSrcMs+=Date.now()-t0;
       var img=res?res.image:null;
       if(img && img.Width>ART_MAXPX){
         try{ img=img.Resize(ART_MAXPX,Math.round(img.Height*ART_MAXPX/img.Width),ART_DOWNSCALE); }catch(e){}
       }
+      // res.path names the file the art came from: an external cover when there is one, the track
+      // itself when it is embedded. data/artdisk.js needs the difference to validate the entry.
+      artDiskPut(h,key,img,res?res.path:'');        // resolved: keep the cover, or the fact there is none
       artDone(key,img); artWarmRepaint();
-    }, function(){ artDone(key,null); });
+    }, function(){ artStatSrcMs+=Date.now()-t0; artDone(key,null); });   // rejected: deliberately
+                                                  // NOT persisted, see artDiskPut
   }catch(e){ artDone(key,null); }
 }
 function getArtK(h,key){                        // cached image, or null (not-loaded -> request async)
@@ -214,6 +237,7 @@ function artHue(h,seed){
   if(!artLoaded(k)) return coverCol(seed);   // still loading -> fallback, don't cache (recompute when it arrives)
   var col=coverCol(seed);
   if(img){ try{ var s=img.GetColourScheme(1); if(s && s.length) col=s[0]; }catch(e){} }
+  artDiskNoteColour(k,col);   // computed once, then it rides in the index and costs nothing again
   hueCache[k]=col; return col;
 }
 /* masked art: circular (artists) / rounded (large covers). Masks + results are cached;

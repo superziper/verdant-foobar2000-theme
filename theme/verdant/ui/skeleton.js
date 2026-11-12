@@ -156,7 +156,7 @@ function skelCards(gr,x,y,w,h,cardW,gap,cardH){
 function skelRows(gr,x,y,w,h,rowH){
   for(var ry=y; ry<y+h; ry+=rowH){
     var rh=Math.min(rowH-8,y+h-ry); if(rh<14) break;
-    gr.FillRoundRect(x,ry,40,Math.min(40,rh),4,4,COL.elev);
+    gr.FillRoundRect(x,ry,40,Math.min(40,rh),roundRad(40,Math.min(40,rh),4),roundRad(40,Math.min(40,rh),4),COL.elev);
     gr.FillRoundRect(x+56,ry+4,Math.round(w*0.30),13,4,4,COL.elev);
     gr.FillRoundRect(x+56,ry+23,Math.round(w*0.19),11,4,4,RGB(30,30,30));
   }

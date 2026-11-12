@@ -16,6 +16,30 @@ function hit(list,x,y){ var i=hitIdx(list,x,y); return i<0?null:list[i]; }
 function labelOf(list,v,dflt){ for(var i=0;i<list.length;i++) if(list[i][1]===v) return list[i][0]; return dflt; }
 function playingLoc(){ return plman.GetPlayingItemLocation?plman.GetPlayingItemLocation():null; }
 
+/* Byte sizes for the Settings page. KB below a megabyte so an almost-empty cache does not read
+   as "0 MB", one decimal in the single digits where it is the difference between 1.2 and 1.9,
+   and whole numbers above that -- nobody needs 142.3 MB. */
+/* GDI+ builds a rounded rectangle out of four arcs, and it REFUSES a corner that does not fit
+   inside the box -- by throwing. Thrown from a paint handler that is fatal: JSplitter ends the
+   script, and the script is the whole panel, so a single short box costs the user every control
+   they have until they reload. ("FillRoundRect failed: Arc argument has invalid value".)
+
+   A hardcoded radius is therefore a latent crash on any box whose size is computed: a capsule
+   button at the smallest UI scale, or a list row clipped to a few pixels by the header it is
+   scrolling under. Clamping is the entire fix, and it degrades the way you would want -- the
+   corner just stops getting rounder once there is no room for it. */
+function roundRad(w,h,r){
+  var m=Math.floor(Math.min(w,h)/2);
+  return Math.max(0,Math.min(r,m));
+}
+function fmtBytes(b){
+  b=Math.max(0,b||0);
+  if(b>=1073741824) return (b/1073741824).toFixed(1)+' GB';
+  if(b<1048576)     return Math.max(1,Math.round(b/1024))+' KB';
+  var mb=b/1048576;
+  return (mb<10?mb.toFixed(1):String(Math.round(mb)))+' MB';
+}
+
 function fmtNum(n){ n=String(n); var out='', c=0; for(var i=n.length-1;i>=0;i--){ out=n.charAt(i)+out; if(++c%3===0 && i>0) out=','+out; } return out; }
 
 // "1 hr 23 min" / "42 min" / "38 sec" style duration

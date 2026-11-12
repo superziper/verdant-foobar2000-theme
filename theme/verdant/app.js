@@ -105,7 +105,12 @@ var fsMode=false, fsView='default', HB_FS=[], vizTimer=null, vizBars=[];
 function applyKeyMode(){ try{ window.DlgCode=(view==='search'||renameEdit)?DLGC_WANTALLKEYS:DLGC_WANTCHARS; }catch(e){} }
 
 var searchQuery='', searchScroll=0, searchScrollT=0, searchIdx=null, searchQ2=null, searchArts=[], searchTrks=[], HB_SEARCH=null;
-var HOME_MAXROW=0, ART_MAXPX=0, SEARCH_MAXPX=0;
+/* Scroll maxima, in pixels, one per view. ARTIST_MAXPX is deliberately not ART_MAXPX: that name
+   belongs to the artwork downscale cap in data/art.js, and because every module shares ONE global
+   scope and app.js loads LAST, a 'var ART_MAXPX=0' here silently reset it to zero on every
+   launch -- which made the downscale in startArtSource throw into its own catch and left every
+   cover in artCache at full source resolution. */
+var HOME_MAXROW=0, ARTIST_MAXPX=0, SEARCH_MAXPX=0;
 // Home "Your Playlists" horizontal shelf: pixel scroll offset + eased target, max, wheel hit-band, h-scrollbar.
 var plScroll=0, plScrollT=0, HOME_PLMAX=0, HOME_SHELF_Y0=0, HOME_SHELF_Y1=0, SBH=null;
 // The shelf glides freely but always *targets* a card boundary, so the leftmost card keeps its
@@ -201,7 +206,7 @@ function drawMain(gr){
   HB_CARD=[]; HB_TR=[]; SB=null; SBH=null;   // clear stale click targets from the previous view
   if(view!=='songs'){ HB_SG=null; SG_HB=[]; HB_RGNORM=null; }
   if(view!=='playlist'){ HB_PLSORT=null; HB_PLSORTDIR=null; PL_SORT_HB=[]; }
-  if(view!=='settings'){ CFG_PILL=[]; CFG_HB=[]; CFG_ROWS=[]; CFG_SWITCH=null; cfgMenu=null; }
+  if(view!=='settings'){ CFG_PILL=[]; CFG_HB=[]; CFG_ROWS=[]; CFG_SWITCH=[]; CFG_BTN=[]; cfgMenu=null; }
   applyKeyMode();
   if(view==='search') startCaret(); else stopCaret();
   var r=R.main; panelBg(gr,r,COL.base);
@@ -348,6 +353,7 @@ function on_mouse_lbtn_up(x,y){
     if((t=hit(CFG_HB,x,y))){ cfgApply(cfgMenu,t.v); return; }
     cfgMenu=null; repaintAll(); return;
   }
+  if((t=hit(CFG_BTN,x,y))){ cfgButton(t.k); return; }   // before the rows: a button row has no row-wide target
   if((t=hit(CFG_ROWS,x,y))){ cfgClickRow(t); return; }
   if(HB_SG && inRect(x,y,HB_SG)){ sgMenuOpen=true; repaintAll(); return; }
   if(HB_RGNORM && inRect(x,y,HB_RGNORM)){ rgToggle(); return; }
@@ -447,7 +453,8 @@ function hoverSig(x,y){
   if(HB_PLSORT && inRect(x,y,HB_PLSORT)) return 'psb';
   if(HB_PLSORTDIR && inRect(x,y,HB_PLSORTDIR)) return 'psd';
   if((i=hitIdx(CFG_PILL,x,y))>=0) return 'cfp'+i;
-  if(CFG_SWITCH && inRect(x,y,CFG_SWITCH)) return 'cfs';
+  if((i=hitIdx(CFG_SWITCH,x,y))>=0) return 'cfs'+i;
+  if((i=hitIdx(CFG_BTN,x,y))>=0) return 'cfb'+i;
   if(SB && inRect(x,y,SB)) return 'sb';
   if((i=cfgRowAt(x,y))>=0) return 'cfr'+i;
   if((i=hitIdx(HB_CTRL,x,y))>=0) return 'c'+i;
@@ -547,7 +554,7 @@ function on_mouse_wheel(step){
   else if(view==='songs'){ songsScrollT=clampPx(songsScrollT-step*WHEEL_PX,SONGS_MAXPX); startScrollAnim(); return; }
   else if(view==='settings'){ cfgScrollT=clampPx(cfgScrollT-step*WHEEL_PX,CFG_MAXPX); startScrollAnim(); return; }
   else if(view==='search'){ searchScrollT=clampPx(searchScrollT-step*WHEEL_PX,SEARCH_MAXPX); startScrollAnim(); return; }
-  else if(view==='artist'){ artScrollT=clampPx(artScrollT-step*WHEEL_PX,ART_MAXPX); startScrollAnim(); return; }
+  else if(view==='artist'){ artScrollT=clampPx(artScrollT-step*WHEEL_PX,ARTIST_MAXPX); startScrollAnim(); return; }
   firstRowT=clampPx(firstRowT-step*WHEEL_PX,PL_MAXPX); startScrollAnim();
 }
 /* ---- drag & drop external files: two targets, the library section (-> new playlist) and the
@@ -594,6 +601,7 @@ function on_drag_drop(action,x,y,mask){
 }
 function on_script_unload(){
   stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); stopShimAnim(); stopMemWatch();
+  artDiskFlush();   // the art index is written on a timer; make sure the last entries land
   if(dupWatch && dupWatch.timer) window.ClearTimeout(dupWatch.timer);
 }
 function invalidateLibrary(){
@@ -606,8 +614,13 @@ function invalidateLibrary(){
 }
 function libChanged(){ invalidateLibrary(); artCardCache={}; artCardN=0; repaintAll(); }
 function on_library_items_added(){ libChanged(); }
-function on_library_items_removed(){ libChanged(); }
-function on_library_items_changed(){ libChanged(); }
+/* artDiskDropHandles runs BEFORE libChanged(), and that order is the whole point: it reads each
+   handle's album key out of albKeyCache, which still holds the key the track had before this edit,
+   and that is the cache entry that has to go. libChanged() does not clear albKeyCache itself, but
+   on_metadb_changed does, and nothing orders those two callbacks -- so the key is read here, first,
+   while it is certain. See data/artdisk.js. */
+function on_library_items_removed(handles){ artDiskDropHandles(handles); libChanged(); }
+function on_library_items_changed(handles){ artDiskDropHandles(handles); libChanged(); }
 
 /* ------------------------- playback callbacks ------------------------- */
 function on_playback_new_track(){
@@ -658,5 +671,7 @@ layout();
 updateNP();
 syncOrderFromFb(); applyPlaybackOrder();   // normalize native order (we manage shuffle ourselves)
 capVolume();       // pull a remembered volume back under the slider's ceiling
+artDiskInit();     // load the on-disk art index, so the very first paint can already hit it
+artStatLater();    // and say, once the art has settled, where this launch actually got it from
 startMemWatch();   // caches grow into the component's spare memory and back off as it fills
 drpSync();         // make foo_verdant agree with the Discord property before anything plays

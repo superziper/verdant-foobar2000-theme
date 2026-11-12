@@ -78,8 +78,11 @@ look, not a client.
   title, artist and album are sent, to the Discord app on this machine.
 - **Custom title bar** — frameless window with real File / Library / Help menus, window controls,
   and a gear that opens the settings page.
-- **Settings in the theme** — UI scale, output ceiling, wheel step and Discord presence as real
-  controls, applied the moment you pick them. No properties dialog, no panel reload.
+- **Album art cached on disk** — covers are read from your library once, downscaled, and kept in the
+  profile folder, so they survive a restart instead of being re-read every launch. Worth the most on
+  a library over a network, where every cover used to be a round trip.
+- **Settings in the theme** — UI scale, output ceiling, wheel step, Discord presence and the artwork
+  cache as real controls, applied the moment you pick them. No properties dialog, no panel reload.
 - **Space plays and pauses** — anywhere except where you're typing, like every other player.
 
 ---
@@ -120,7 +123,9 @@ Preferences → Display → Columns UI → **Import**, ticking **Main Layout** a
 
 ### Uninstall
 
-Run `uninstall.ps1` from `<profile>\verdant-backup\<date>\`, then delete `<profile>\verdant\`.
+Run `uninstall.ps1` from `<profile>\verdant-backup\<date>\`, then delete `<profile>\verdant\` and
+`<profile>\verdant-cache\` — the cached album art, which lives outside the theme folder so that a
+reinstall or a dev sync cannot wipe it.
 
 ---
 
@@ -145,12 +150,17 @@ Click the **gear** at the right of the title bar, just inside the window buttons
 | **Output ceiling** | Full range | Lowers the top of the volume slider, in dB below foobar's own maximum. Worth setting on a system with plenty of gain downstream, where the top of the scale is unusable and the slider's travel is better spent lower. |
 | **Wheel step** | Normal (180 px) | How far one wheel notch scrolls a list. |
 | **Discord presence** | On | Shows the playing track on your Discord profile. Off turns it off completely: nothing is published and no connection to Discord is opened. Needs the bundled `foo_verdant` component. |
+| **Cache artwork on disk** | On | Keeps covers between restarts instead of re-reading them from your library every launch. Off goes back to memory-only: no reads, no writes, exactly the behaviour before the cache existed. |
+| **Cache size limit** | 1 GB | The most disk the cover cache may use — about 16,000 albums. Over it, the covers you looked at longest ago are removed first. `No limit` lets it grow freely. |
+
+**Cached artwork** below them shows what is on disk and clears it. A cache can only ever cost a
+refetch, so there is no confirmation dialog; the button says how much it will reclaim.
 
 Changes apply as you make them — including UI scale, which rebuilds the fonts and the title bar in
 place. Nothing here needs a panel reload.
 
-The four values live in the panel's own property store, so they travel with your layout. Right-click
-→ **Properties** still edits the same four and remains useful for typing an exact value the page
+The six values live in the panel's own property store, so they travel with your layout. Right-click
+→ **Properties** still edits the same six and remains useful for typing an exact value the page
 doesn't offer as a preset (`-8` dB, say) — the page shows whatever is actually stored.
 
 Sidebar and queue-pane widths are still code: `M.navW` / `M.queueW` in

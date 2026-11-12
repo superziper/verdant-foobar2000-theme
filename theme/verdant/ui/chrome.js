@@ -125,8 +125,14 @@ function modalPanel(gr,cw,ch,cy){
   gr.FillRoundRect(cx,cy,cw,ch,12,12,RGB(42,42,42));
   return cx;
 }
+/* 20 is the design radius and at the 40px height the modals use it is exactly a capsule. The
+   Settings page calls this at its own row height, which is as low as 36 at 100% scale -- an arc of
+   40 into a box of 36, which GDI+ throws on rather than clipping. roundRad keeps 20 wherever there
+   is room for it and quietly makes it a capsule where there is not. */
 function dlgBtn(gr,x,y,w,h,label,col,hcol,txt){
-  gr.FillRoundRect(x,y,w,h,20,20,hv(x,y,x+w,y+h)?hcol:col);
+  if(w<2 || h<2) return {x0:x,y0:y,x1:x+w,y1:y+h};   // nothing to draw, and no arc to get wrong
+  var rad=roundRad(w,h,20);
+  gr.FillRoundRect(x,y,w,h,rad,rad,hv(x,y,x+w,y+h)?hcol:col);
   tC(gr,label,FONT.pl,txt,x,y,w,h);
   return {x0:x,y0:y,x1:x+w,y1:y+h};
 }

@@ -51,8 +51,8 @@ function drawArtist(gr,r){
   // ---- layout + the eased pixel offset, the same model as every other list ----
   var tops=[], contentH=0;
   for(b=0;b<artistAlbums.length;b++){ tops.push(contentH); contentH+=artBlockH(artistAlbums[b]); }
-  ART_MAXPX=Math.max(0,contentH-viewH);
-  artScroll=clampPx(artScroll,ART_MAXPX); artScrollT=clampPx(artScrollT,ART_MAXPX);
+  ARTIST_MAXPX=Math.max(0,contentH-viewH);
+  artScroll=clampPx(artScroll,ARTIST_MAXPX); artScrollT=clampPx(artScrollT,ARTIST_MAXPX);
 
   /* ---- discography, drawn FIRST ----
      The header is painted over it afterwards, so a block scrolling up simply disappears under
@@ -117,5 +117,5 @@ function drawArtist(gr,r){
   tL(gr,viewArtist,FONT.title,COL.text,htx,ay+30,htw,70);
   tL(gr,artistAlbums.length+' albums '+CH_DOT+' '+songs+' songs in your library',FONT.meta,COL.text2,htx,ay+112,htw,22);
 
-  drawScrollbar(gr,rx+8,rowsTop,viewH,artScroll,ART_MAXPX,viewH,contentH,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
+  drawScrollbar(gr,rx+8,rowsTop,viewH,artScroll,ARTIST_MAXPX,viewH,contentH,hv(r.x,r.y,r.x+r.w,cropY)||drag==='scroll');
 }
