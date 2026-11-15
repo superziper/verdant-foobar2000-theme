@@ -43,35 +43,46 @@ var CFG_CACHE_MB=[['128 MB (~2,000 albums)',128],['512 MB (~8,000 albums)',512],
 /* The fallback label is the live value, not a guess: these four are editable from the Properties
    dialog too, so the page has to be able to show -8 dB honestly rather than claiming one of its
    own presets. */
+/* Four headings, and deliberately broad ones. The page is short enough that the grouping's job is
+   to let someone SKIM to the right neighbourhood, not to file each setting precisely -- a heading
+   per setting would be an index, not a grouping, and would make the page longer than the list it
+   organises. They are named after what the user came looking for ("the lyrics are out of time")
+   rather than after the part of the theme that implements it. */
 function cfgModel(){
   var sc=cfgScaleOpts();
   return [
-    {k:'scale', label:'UI scale',          desc:'Fonts, icons and the title bar. Auto follows your display.',
+    {kind:'group', label:'Interface'},
+    {k:'scale', label:'Scale fonts, icons and the title bar to your display',
      items:sc,        val:UISCALE_PROP, text:labelOf(sc,UISCALE_PROP,cfgPct(UISCALE))},
-    {k:'ceil',  label:'Output ceiling',    desc:'Lowers the top of the volume slider.',
-     items:CFG_CEIL,  val:VOL_CEIL,     text:labelOf(CFG_CEIL,VOL_CEIL,VOL_CEIL+' dB')},
-    {k:'wheel', label:'Wheel step',        desc:'How far one wheel notch scrolls a list.',
+    {k:'wheel', label:'How far one wheel notch scrolls a list',
      items:CFG_WHEEL, val:WHEEL_PX,     text:labelOf(CFG_WHEEL,WHEEL_PX,WHEEL_PX+' px')},
-    {k:'drp',   label:'Discord presence',  kind:'switch', on:DRP_ON, enabled:drpPresent,
-     desc:drpPresent ? 'Shows the playing track on your Discord profile.'
-                     : 'Needs the foo_verdant component, which is not installed.'},
-    {k:'cache', label:'Cache artwork on disk', kind:'switch', on:ARTDISK_ON, enabled:true,
-     desc:'Keeps covers between restarts instead of re-reading them from your library every launch.'},
-    /* The size is in the label rather than the description because it is the one fact that makes
-       this click informed, and a button whose label says what it will throw away needs no
-       confirmation dialog on top -- a cache can only ever cost a refetch. */
-    {k:'cachemb', label:'Cache size limit', items:CFG_CACHE_MB, val:ARTDISK_MB,
-     text:labelOf(CFG_CACHE_MB,ARTDISK_MB,ARTDISK_MB?fmtBytes(ARTDISK_MB*1048576):'No limit'),
-     desc:'The most disk the cover cache may use. Over it, the covers you looked at longest ago go first.'},
-    {k:'clear', label:'Cached artwork', kind:'button', btn:'Clear'+(artDiskUsage()?' ('+fmtBytes(artDiskUsage())+')':''),
-     enabled:artDiskUsage()>0, desc:artDiskUsageText()},
-    {k:'lyrfetch', label:'Find lyrics online', kind:'switch', on:LYR_FETCH_ON, enabled:true,
-     desc:'Only for tracks with no .lrc beside them and none in their tags. Saves a .lrc next to the song.'},
+
+    {kind:'group', label:'Playback'},
+    {k:'ceil',  label:'Lower the top of the volume slider',
+     items:CFG_CEIL,  val:VOL_CEIL,     text:labelOf(CFG_CEIL,VOL_CEIL,VOL_CEIL+' dB')},
+    {k:'drp',   kind:'switch', on:DRP_ON, enabled:drpPresent,
+     label:drpPresent ? 'Show the playing track on your Discord profile'
+                      : 'Discord presence needs the foo_verdant component, which is not installed'},
+
+    {kind:'group', label:'Lyrics'},
+    {k:'lyrfetch', kind:'switch', on:LYR_FETCH_ON, enabled:true,
+     label:'Look up lyrics online for tracks that have none of their own'},
     /* A button row rather than a dropdown, because the useful value is a number the user arrives
        at by ear and it is not one of five. The capsule shows the value and opens a text box; the
        Properties dialog edits the same property, as it does for every other setting here. */
-    {k:'lyroffset', label:'Lyrics timing', kind:'button', btn:cfgMs(LY_OFFSET), enabled:true,
-     desc:'Shifts every lyric line. Positive shows them earlier, negative later.'}
+    {k:'lyroffset', kind:'button', btn:cfgMs(LY_OFFSET), enabled:true,
+     label:'Shift every lyric line earlier or later'},
+
+    {kind:'group', label:'Artwork'},
+    {k:'cache', kind:'switch', on:ARTDISK_ON, enabled:true,
+     label:'Keep album art on disk so it survives a restart'},
+    {k:'cachemb', label:'The most disk the cover cache may use', items:CFG_CACHE_MB, val:ARTDISK_MB,
+     text:labelOf(CFG_CACHE_MB,ARTDISK_MB,ARTDISK_MB?fmtBytes(ARTDISK_MB*1048576):'No limit')},
+    /* The only row whose line is computed: it reports what is actually on disk right now, which is
+       the one fact that makes the click informed. A button whose label says what it will throw
+       away needs no confirmation dialog on top -- a cache can only ever cost a refetch. */
+    {k:'clear', kind:'button', btn:'Clear'+(artDiskUsage()?' ('+fmtBytes(artDiskUsage())+')':''),
+     enabled:artDiskUsage()>0, label:artDiskUsageText()}
   ];
 }
 
@@ -81,32 +92,99 @@ function cfgModel(){
 function drawSettings(gr,r){
   CFG_PILL=[]; CFG_SWITCH=[]; CFG_BTN=[]; CFG_ROWS=[];
   var lx=r.x+M.cpad, w=r.w-M.cpad*2, cropY=r.y+r.h;
-  var lhL=lineH(gr,FONT.pl), lhD=lineH(gr,FONT.plSub);
-  var rowH=lhL+lhD+40, ph=Math.max(36,lhL+18), pw=Math.min(Math.round(w*0.42),Math.max(200,Math.round(260*UISCALE)));
-  var rows=cfgModel(), i;
+  /* One line per setting, in the plain weight, and that is what lets the headings do their job:
+     a 13-bold white label was a second level of heading competing with the real one. The line is
+     the whole setting now -- it says what the control does instead of naming it and explaining it
+     underneath, so there is nothing left to put in a caption.
+     The row is sized from the CONTROL rather than the text, because a switch or a capsule is
+     taller than one line of 13px and is what actually sets the pitch. */
+  var lhL=lineH(gr,FONT.meta);
+  var ph=Math.max(36,lhL+18), rowH=Math.max(ph+20,lhL+30);
+  var pw=Math.min(Math.round(w*0.42),Math.max(200,Math.round(260*UISCALE)));   // provisional; re-measured below
+
+  /* The controls follow the TEXT, not the panel edge. Right-aligning them to a panel that can be
+     1500px wide left a thousand pixels of nothing between a label and the thing it labels, and a
+     row you have to track across with your eye is not one row, it is two columns. So the column
+     is only as wide as the longest line needs plus the control -- on a narrow panel that is the
+     whole width and nothing changes, and on a wide one the pair stays together and the rest of
+     the panel is CENTRED on, rather than hanging off its left edge.
+     Measuring every label costs nine CalcTextWidth calls a paint, which is nothing next to what
+     the row drawing does anyway, and it beats a hardcoded column width that would be wrong at
+     every UI scale and in every translation. */
+  var rows=cfgModel(), i, j, longest=0, widestOpt=0;
+  for(i=0;i<rows.length;i++){
+    var row_=rows[i];
+    if(row_.kind==='group' || !row_.label) continue;
+    var tw_=gr.CalcTextWidth(row_.label,FONT.meta);
+    if(tw_>longest) longest=tw_;
+    /* Every OPTION a dropdown can show, not just the one selected: sizing the pill to the current
+       value would make it -- and the whole column behind it -- change width as you pick through
+       the list, so the page would shuffle sideways under the cursor. */
+    if(row_.items){
+      for(j=0;j<row_.items.length;j++){
+        var ow_=gr.CalcTextWidth(row_.items[j][0],FONT.pl);
+        if(ow_>widestOpt) widestOpt=ow_;
+      }
+      var cur_=gr.CalcTextWidth(row_.text,FONT.pl);   // may be a Properties-dialog value, off-list
+      if(cur_>widestOpt) widestOpt=cur_;
+    }
+  }
+  /* The pill pads its text by 18 on the left and leaves 32 for the chevron (see drawDropPill), so
+     this is what it actually needs rather than a constant that was simply wide enough for all of
+     them. Clamped either way: nothing useful is narrower than this, and a long translation must
+     not be allowed to eat the label beside it. */
+  pw=Math.max(Math.round(150*UISCALE),Math.min(Math.round(w*0.42),widestOpt+Math.round(64*UISCALE)));
+  var colW=Math.min(w,longest+Math.round(28*UISCALE)+pw);
+  /* Centred, so a column narrower than the panel sits in the middle of it rather than against the
+     left edge with a field of nothing to its right. On a panel no wider than the column needs
+     this resolves to the old left margin exactly, so narrow layouts are untouched. */
+  lx=r.x+Math.round((r.w-colW)/2);
+  var sbX=r.x+r.w-M.cpad+8;   // the scrollbar belongs to the PANEL, so it stays at its edge
+  /* Heights are per ROW now rather than one constant times an index, because a heading is not a
+     row and must not be given a row's worth of height. The offsets are accumulated once per paint
+     and then everything -- the scroll extent, the cull, the separators -- reads from them, so
+     there is exactly one place that knows how tall anything is. */
+  var lhG=lineH(gr,FONT.cfgGroup), hgt=[], yof=[], acc=0;
+  /* The air above a heading is what actually draws the group, far more than the type does: a
+     heading with a row's worth of space around it reads as one more row. The first one gets much
+     less, because the page header above it already supplies the gap. */
+  for(i=0;i<rows.length;i++){
+    var hh=(rows[i].kind==='group')?(i===0?lhG+10:lhG+56):rowH;
+    hgt.push(hh); yof.push(acc); acc+=hh;
+  }
 
   // ---- header: the page's title, so it stays put while the rows scroll under it ----
-  var hy=r.y+26, lhT=lineH(gr,FONT.sect2), top=hy+lhT+lhD+26;
+  var hy=r.y+26, lhT=lineH(gr,FONT.sect2), top=hy+lhT+22;
   function header(){
-    tL(gr,'Settings',FONT.sect2,COL.text,lx,hy,w,lhT);
-    tL(gr,'Saved with this layout, and applied as you change them.',FONT.plSub,COL.text2,lx,hy+lhT+4,w,lhD);
-    gr.DrawLine(lx,top-10,lx+w,top-10,1,COL.line);
+    tL(gr,'Settings',FONT.sect2,COL.text,lx,hy,colW,lhT);
+    gr.DrawLine(lx,top-10,lx+colW,top-10,1,COL.line);
   }
   header();
 
   // ---- rows ----
-  var viewH=Math.max(0,cropY-top), contentH=rows.length*rowH;
+  var viewH=Math.max(0,cropY-top), contentH=acc;
   CFG_MAXPX=Math.max(0,contentH-viewH);
   cfgScroll=clampPx(cfgScroll,CFG_MAXPX); cfgScrollT=clampPx(cfgScrollT,CFG_MAXPX);
   var openA=null, openR=null;
   for(i=0;i<rows.length;i++){
-    var ry=top+i*rowH-cfgScroll;
+    var rh=hgt[i], ry=top+yof[i]-cfgScroll;
     if(ry>=cropY) break;
-    if(ry+rowH<=top) continue;
-    var row=rows[i], cy=ry+Math.round((rowH-ph)/2);
+    if(ry+rh<=top) continue;
+    var row=rows[i];
+    /* A heading is text and nothing else: no hover band, no hitbox, no separator. It is pinned to
+       the BOTTOM of its block so the space above belongs to the group it is introducing rather
+       than to the one that just ended. Drawn only when it fits whole, like every other label on
+       this page -- there is no clip API, and half a heading under the page header reads as a
+       fault rather than as scrolling. */
+    if(row.kind==='group'){
+      var gy=ry+rh-lhG;
+      if(gy>=top && gy+lhG<=cropY) tL(gr,row.label,FONT.cfgGroup,COL.text,lx,gy,colW,lhG);
+      continue;
+    }
+    var cy=ry+Math.round((rh-ph)/2);
     // hover cue across the whole row: the control is on the far right of a wide panel, and the
     // band is what ties it back to the label it belongs to
-    var bt=Math.max(ry+4,top), bb=Math.min(ry+rowH-4,cropY);   // clamped: a row half under the header must not answer the mouse there
+    var bt=Math.max(ry+4,top), bb=Math.min(ry+rh-4,cropY);   // clamped: a row half under the header must not answer the mouse there
     /* A button row is the exception to the whole-row rule above, and on purpose. The argument
        for a row-wide target is that a row-wide hover cue has to be honest -- but it cuts the
        other way for an action that destroys something: a stray click anywhere along a 56px band
@@ -116,32 +194,39 @@ function drawSettings(gr,r){
        still below it, and an 8px corner needs 16px of height to exist in. One pixel of hover cue
        is not worth drawing anyway, so the band is simply skipped -- but the row stays a target. */
     if(bb-bt>=2 && row.kind!=='button'){
-      if(hv(lx-8,bt,lx+w+8,bb)){
-        var brad=roundRad(w+16,bb-bt,8);
-        gr.FillRoundRect(lx-8,bt,w+16,bb-bt,brad,brad,RGBA(255,255,255,10));
+      if(hv(lx-8,bt,lx+colW+8,bb)){
+        var brad=roundRad(colW+16,bb-bt,8);
+        gr.FillRoundRect(lx-8,bt,colW+16,bb-bt,brad,brad,RGBA(255,255,255,10));
       }
-      CFG_ROWS.push({x0:lx-8,y0:bt,x1:lx+w+8,y1:bb,k:row.k,kind:row.kind,enabled:row.enabled});
+      CFG_ROWS.push({x0:lx-8,y0:bt,x1:lx+colW+8,y1:bb,k:row.k,kind:row.kind,enabled:row.enabled});
     }
-    var ty=ry+Math.round((rowH-lhL-lhD-4)/2), tw=Math.max(40,w-pw-28);
-    tL(gr,row.label,FONT.pl,COL.text,lx,ty,tw,lhL);
-    tL(gr,row.desc,FONT.plSub,COL.text2,lx,ty+lhL+4,tw,lhD);
+    var ty=ry+Math.round((rh-lhL)/2), tw=Math.max(40,colW-pw-28);
+    tL(gr,row.label,FONT.meta,row.enabled===false?COL.text3:COL.text2,lx,ty,tw,lhL);
     if(row.kind==='switch'){
-      var sw=Math.round(ph*1.55), sx=lx+w-sw;
+      var sw=Math.round(ph*1.55), sx=lx+colW-sw;
       var hbs=drawSwitch(gr,sx,cy+Math.round((ph-ph*0.72)/2),sw,Math.round(ph*0.72),row.on,row.enabled);
       if(row.enabled) CFG_SWITCH.push(hbs);  // disabled: drawn, but not a target
     } else if(row.kind==='button'){
       // same capsule the modal dialogs use, in the neutral (Cancel) weight: this is not a primary
       // action and should not read like one. Disabled draws with hover == rest, so it stays inert.
-      var bw2=Math.min(Math.round(w*0.42),Math.max(140,Math.round(170*UISCALE))), bx2=lx+w-bw2;
+      /* Sized to its own label, so "0 ms" is a small capsule and "Clear (55 MB)" a wider one,
+         both ending on the same right edge as every other control. A fixed width made the short
+         one a wide slab of nothing with four characters adrift in the middle of it. */
+      var bw2=Math.min(Math.round(colW*0.42),
+                       Math.max(Math.round(104*UISCALE),gr.CalcTextWidth(row.btn,FONT.pl)+Math.round(44*UISCALE)));
+      var bx2=lx+colW-bw2;
       var hbb=dlgBtn(gr,bx2,cy,bw2,ph,row.btn,row.enabled?RGB(52,52,52):RGB(44,44,44),
                      row.enabled?RGB(66,66,66):RGB(44,44,44),row.enabled?COL.text:COL.text3);
       if(row.enabled){ hbb.k=row.k; CFG_BTN.push(hbb); }
     } else {
-      var anchor=drawDropPill(gr,lx+w-pw,cy,pw,ph,row.text,cfgMenu===row.k);
+      var anchor=drawDropPill(gr,lx+colW-pw,cy,pw,ph,row.text,cfgMenu===row.k);
       anchor.k=row.k; CFG_PILL.push(anchor);
       if(cfgMenu===row.k){ openA=anchor; openR=row; }
     }
-    if(i<rows.length-1 && ry+rowH<cropY) gr.DrawLine(lx,ry+rowH,lx+w,ry+rowH,1,RGBA(255,255,255,14));
+    /* No separators. A line between every row ties the whole page into one continuous table, which
+       is exactly the reading the headings are there to break -- the eye follows the rules, not the
+       gaps, and every group looks like a continuation of the last. Spacing alone carries it, which
+       is how the page this one is modelled on does it too. */
   }
   /* Crop the partial top row, then redraw the header over it -- the same order drawNav uses for
      its pinned block. The clear starts below the panel's rounded corners so a square fill can't
@@ -149,7 +234,7 @@ function drawSettings(gr,r){
   gr.FillSolidRect(r.x,r.y+M.radius+2,r.w,Math.max(0,top-(r.y+M.radius+2)),COL.base);
   header();
   gr.FillSolidRect(r.x,cropY,r.w,M.pad+2,COL.black);   // gutter below the panel
-  drawScrollbar(gr,lx+w+8,top,viewH,cfgScroll,CFG_MAXPX,viewH,contentH,hv(r.x,top,r.x+r.w,cropY)||drag==='scroll');
+  drawScrollbar(gr,sbX,top,viewH,cfgScroll,CFG_MAXPX,viewH,contentH,hv(r.x,top,r.x+r.w,cropY)||drag==='scroll');
 
   // last, so it floats over the rows; the panel's own edges are the lines it may not cross
   CFG_HB=(openA&&openR)?drawDropMenu(gr,openA,openR.items,openR.val,pw,cropY,r.y+8):[];

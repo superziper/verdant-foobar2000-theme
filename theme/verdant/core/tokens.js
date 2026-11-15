@@ -33,6 +33,10 @@ function buildFonts(){ return {
   eyebrow:F(11,1), title:F(52,1), meta:F(13,0),
   rowTitle:F(14,0), rowArtist:F(12,0), rowNum:F(13,0), rowCell:F(13,0), head:F(12,1),
   tab:F(16,1), sect:F(15,1), qName:F(13,0), qArtist:F(11,0),
+  /* The Settings page's group headings. Its own size because the page needs THREE steps -- title,
+     group, setting -- and sect at 15 sits only two points above the 13-bold row label, which is
+     not a step anyone reads as one. */
+  cfgGroup:F(18,1),
   npTitle:F(15,0), npArtist:F(12,0), time:F(12,0),
   icon:gf('Segoe MDL2 Assets',15), iconBtn:gf('Segoe MDL2 Assets',18),
   navIco:gf('Segoe MDL2 Assets',24), cap:gf('Segoe MDL2 Assets',10),
