@@ -130,21 +130,39 @@ DISCORD
   on this machine. Your files are never uploaded: album art is matched against
   public catalogues and shown by link, so nothing of your library leaves here.
 
-  To turn it off: right-click the panel > Properties > set
-      Discord: show the playing track (1 = on)
-  to 0, then reload the panel (right-click > Reload). With it off, nothing is
-  published and no connection to Discord is made.
+  To turn it off: click the gear at the right of the title bar, then under
+  Playback switch off "Show the playing track on your Discord profile". With it
+  off, nothing is published and no connection to Discord is made.
 
-TUNING
-  Right-click the panel > Properties:
-    Display: UI scale (0 = auto)   0 follows your display; set 1.0 for compact, higher for 4K
-    Scrolling: wheel step (px)     how far one wheel notch scrolls
-    Discord: show the playing track (1 = on)
-  Reload the panel (right-click > Reload) after changing any of them.
+LYRICS
+  Verdant reads lyrics from a .lrc or .txt beside the track, then from the track's
+  own tags. For a track that has neither, it looks them up at lrclib.net. That
+  lookup is ON by default.
+
+  Only the artist, title, album and track length are sent, only while the lyrics
+  pane is open, and only for tracks that have no lyrics of their own. Anything you
+  already have always wins. A fetched lyric is shown, not saved: nothing is written
+  into your music folders unless you press Save in the editor.
+
+  To turn it off: click the gear at the right of the title bar, then under Lyrics
+  switch off "Look up lyrics online for tracks that have none of their own".
+
+SETTINGS
+  Click the gear at the right of the title bar. Display scale, scroll speed, the
+  volume ceiling, Discord, lyrics and the album art cache are all there, and every
+  one of them applies the moment you change it -- no panel reload.
+
+  Right-click > Properties still edits the same values, if you would rather type an
+  exact number than pick one from a list.
 
 UNINSTALL
   Run uninstall.ps1 from the backup folder printed at the end of the install,
-  then delete <profile>\verdant\.
+  then delete <profile>\verdant\ and <profile>\verdant-cache\.
+
+  verdant-cache holds the album art Verdant keeps on disk and its record of which
+  tracks had no lyrics online. The theme creates it while it runs, not the
+  installer, so uninstall.ps1 does not know about it. It is allowed up to a
+  gigabyte by default, so it is worth deleting by hand.
 
 NOTES
   Verdant restyles your local library. It does not connect to Spotify's service.
