@@ -67,6 +67,10 @@ look, not a client.
 - **Search** — instant, across artists and tracks, as you type.
 - **Queue / Lyrics pane** — what's actually playing next (real playback queue *and* "next from"),
   or synced `.lrc` / plain `.txt` lyrics that roll with the track. Click any queue row to jump to it.
+- **Lyrics from wherever you keep them** — a `.lrc` or `.txt` beside the track, or the track's own
+  tags, or fetched from LRCLIB for the ones that have neither. A fetched lyric is shown rather than
+  written: keep it with one click, or let it go. Edit any of them in place — saving writes back to
+  the tag it came from, or to a `.lrc` next to the song.
 - **Fullscreen mode** — big now-playing art, rolling lyrics, or an FFT audio visualizer fed from
   real PCM. Four visualizer styles.
 - **Normalize volume** — one button that levels your whole library so you stop reaching for the
@@ -81,8 +85,9 @@ look, not a client.
 - **Album art cached on disk** — covers are read from your library once, downscaled, and kept in the
   profile folder, so they survive a restart instead of being re-read every launch. Worth the most on
   a library over a network, where every cover used to be a round trip.
-- **Settings in the theme** — UI scale, output ceiling, wheel step, Discord presence and the artwork
-  cache as real controls, applied the moment you pick them. No properties dialog, no panel reload.
+- **Settings in the theme** — UI scale, output ceiling, wheel step, Discord presence, the artwork
+  cache and the lyrics options as real controls, applied the moment you pick them. No properties
+  dialog, no panel reload.
 - **Space plays and pauses** — anywhere except where you're typing, like every other player.
 
 ---
@@ -124,8 +129,13 @@ Preferences → Display → Columns UI → **Import**, ticking **Main Layout** a
 ### Uninstall
 
 Run `uninstall.ps1` from `<profile>\verdant-backup\<date>\`, then delete `<profile>\verdant\` and
-`<profile>\verdant-cache\` — the cached album art, which lives outside the theme folder so that a
-reinstall or a dev sync cannot wipe it.
+`<profile>\verdant-cache\` — the cached album art and the remembered lyrics misses, which live
+outside the theme folder so that a reinstall or a dev sync cannot wipe them.
+
+Any `.lrc` files you saved from fetched lyrics are left where they are, in your music folders next
+to the tracks they belong to. They are ordinary lyrics files that any player can read, so removing
+them is not part of uninstalling; they are marked `[re:Verdant]` on their first line if you want to
+find them.
 
 ---
 
@@ -135,8 +145,27 @@ reinstall or a dev sync cannot wipe it.
 > fresh foobar has an empty library, so add a music folder under Preferences → **Media Library**.
 > That's expected, not a broken install.
 
-Lyrics are read from a `.lrc` (synced) or `.txt` (plain) file sitting next to the audio file, with the
-same name.
+Lyrics are looked for in three places, in this order: a `.lrc` (synced) or `.txt` (plain) file next
+to the audio file with the same name, then the track's own tags (`LYRICS`, `UNSYNCEDLYRICS`,
+`SYNCEDLYRICS`, or ID3's `USLT`), then [LRCLIB](https://lrclib.net) online. A file or a tag you
+already have always wins, so the lookup only ever runs where the pane would otherwise be empty.
+Turn it off with **Find lyrics online** in [Settings](#settings).
+
+A fetched lyric is **shown, not saved**, and it is the only one the pane says anything about: it
+carries a green **Fetched · not saved** pill. Press **Edit** then **Save** and it becomes a `.lrc`
+next to the song, marked `[re:Verdant]` so you can tell it apart later, and the pill drops to a
+plain **Fetched**. Lyrics you
+already had get no pill, whether they came from a file or from the track's own tags — they're yours
+either way. Nothing is written into your music folders just because you opened the lyrics pane; the
+trade is that a track you never save is looked up again each time it plays.
+
+**Edit** in the lyrics pane opens whatever is on screen in a text editor. Where Save writes depends
+on where the lyric came from: a tag is written back to that same tag *inside the music file* (it
+asks first, and names the file and the tag — this is the one thing Verdant cannot undo), while a
+file-based or fetched lyric is written to the `.lrc` next to the song.
+
+If the lines run early or late, set **Lyrics timing** in [Settings](#settings). A file carrying its
+own `[offset:]` tag is honoured too, and the two add up.
 
 ---
 
@@ -152,6 +181,8 @@ Click the **gear** at the right of the title bar, just inside the window buttons
 | **Discord presence** | On | Shows the playing track on your Discord profile. Off turns it off completely: nothing is published and no connection to Discord is opened. Needs the bundled `foo_verdant` component. |
 | **Cache artwork on disk** | On | Keeps covers between restarts instead of re-reading them from your library every launch. Off goes back to memory-only: no reads, no writes, exactly the behaviour before the cache existed. |
 | **Cache size limit** | 1 GB | The most disk the cover cache may use — about 16,000 albums. Over it, the covers you looked at longest ago are removed first. `No limit` lets it grow freely. |
+| **Find lyrics online** | On | Looks a track up on [LRCLIB](https://lrclib.net) when it has no `.lrc` beside it *and* no lyrics in its tags. What it finds is shown, not written — saving is yours to do from **Edit**. Only runs while the lyrics pane is open, one request at a time, and remembers a miss for a month so the same track isn't asked about on every play. Off makes no requests at all. |
+| **Lyrics timing** | 0 ms | Shifts every lyric line. Positive shows them **earlier**, negative later — the same sign convention as the LRC `[offset:]` tag, which is honoured as well and adds to this. Type any value from -30000 to 30000. |
 
 **Cached artwork** below them shows what is on disk and clears it. A cache can only ever cost a
 refetch, so there is no confirmation dialog; the button says how much it will reclaim.
@@ -159,8 +190,8 @@ refetch, so there is no confirmation dialog; the button says how much it will re
 Changes apply as you make them — including UI scale, which rebuilds the fonts and the title bar in
 place. Nothing here needs a panel reload.
 
-The six values live in the panel's own property store, so they travel with your layout. Right-click
-→ **Properties** still edits the same six and remains useful for typing an exact value the page
+The eight values live in the panel's own property store, so they travel with your layout. Right-click
+→ **Properties** still edits the same eight and remains useful for typing an exact value the page
 doesn't offer as a preset (`-8` dB, say) — the page shows whatever is actually stored.
 
 Sidebar and queue-pane widths are still code: `M.navW` / `M.queueW` in
@@ -276,7 +307,8 @@ as you pick it, so you can see the result and adjust again from the same page.
 theme/verdant/        the theme — copied verbatim into <profile>\verdant\
   main.js             entry point: declares the panel, sets the module load order
   core/               props, tokens, utils, title formats, memory caps, job scheduler
-  data/               art, library, playback, lyrics, replaygain, dedupe, playlist edit, discord
+  data/               art, library, playback, lyrics, lyrics fetch, replaygain, dedupe,
+                      playlist edit, discord
   ui/                 skeletons + shimmer, window chrome and shared widgets
   views/              nav, playlist, home, artist, songs, search, settings, queue, bar, fullscreen
   app.js              panel state, layout, paint dispatch, input, foobar callbacks

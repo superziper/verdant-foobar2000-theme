@@ -25,7 +25,7 @@ function qEntry(gr,r,x,y,cs,dy,h,seed,key,title,artist,tcol){
   tL(gr,artist,FONT.qArtist,COL.text2,tx,y+dy+20,tw,16);
 }
 function drawQueue(gr){
-  HB_TABS=[]; HB_Q=[];
+  HB_TABS=[]; HB_Q=[]; HB_LY=[];
   var r=R.queue; panelBg(gr,r,COL.base);
   var x=r.x+18;
   var qOn=rightTab==='queue';
@@ -38,11 +38,34 @@ function drawQueue(gr){
   if(!qOn){
     loadLyrics();
     if(noLyrics()){
-      tC(gr,'No lyrics found',FONT.sect,COL.text2,r.x,r.y+Math.round(r.h/2)-28,r.w,24);
-      tC(gr,'No .lrc or .txt beside this track.',FONT.qArtist,COL.text3,r.x,r.y+Math.round(r.h/2)+2,r.w,18);
+      /* The status line is the fetcher's, not a fixed string: "no lyrics" and "looking", and "the
+         service asked me to wait", are different situations and the pane should not report all
+         three as the same dead end. */
+      var cy0=r.y+Math.round(r.h/2);
+      tC(gr,'No lyrics found',FONT.sect,COL.text2,r.x,cy0-42,r.w,24);
+      tC(gr,lyfStatusText(),FONT.qArtist,COL.text3,r.x,cy0-12,r.w,18);
+      // Nothing to offer while a request is open, and nothing to write to without a track.
+      if(lyfState!=='busy' && NP){
+        var bw=Math.min(160,Math.max(120,r.w-80)), bx=r.x+Math.round((r.w-bw)/2);
+        var hbF=dlgBtn(gr,bx,cy0+22,bw,32,'Fetch now',RGB(52,52,52),RGB(66,66,66),COL.text);
+        hbF.act='lyfetch'; HB_LY.push(hbF);
+        var hbA=dlgBtn(gr,bx,cy0+62,bw,32,'Add lyrics',RGB(52,52,52),RGB(66,66,66),COL.text);
+        hbA.act='lyedit'; HB_LY.push(hbA);
+      }
       return;
     }
-    var viewTop=r.y+64, viewBot=r.y+r.h-16, maxW=r.w-28;
+    /* A strip between the tabs and the words: where this lyric came from on the left, the way to
+       change it on the right. Putting the badge next to the Edit button is what makes the badge
+       actionable rather than trivia -- the pill and the button in one breath say what Save will
+       touch. The note, when there is one, takes a line of its own: this pane is narrow enough
+       that a sentence beside a pill and a button would be three truncated things, not one row. */
+    var sy=r.y+58, px=r.x+18;
+    var ew=Math.min(62,Math.round(r.w*0.3)), ex=r.x+r.w-18-ew;
+    var hbE=dlgBtn(gr,ex,sy,ew,26,'Edit',RGB(46,46,46),RGB(62,62,62),COL.text2);
+    hbE.act='lyedit'; HB_LY.push(hbE);
+    var lbl=lyBadgeLong(), strip=sy+26;
+    if(lbl) lyPill(gr,px,sy+Math.round((26-lyPillH(gr))/2),lbl);
+    var viewTop=strip+12, viewBot=r.y+r.h-16, maxW=r.w-28;
     if(lyrics.synced) drawRollingLyrics(gr,r.x+14,viewTop,maxW,viewBot,FONT.lyric,COL.green,'c');
     else drawStaticLyrics(gr,r.x+14,maxW,viewTop+6,viewBot,FONT.lyric,0.45);
     return;

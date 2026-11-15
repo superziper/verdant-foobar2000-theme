@@ -11,6 +11,8 @@ function doFsAct(act){
   if(act==='exit') exitFullscreen();
   else if(act==='lyrics') setFsView(fsView==='lyrics'?'default':'lyrics');
   else if(act==='viz') setFsView(fsView==='viz'?'default':'viz');
+  // the two lyrics actions are the same here as in the right-hand pane, so they share one handler
+  else if(act==='lyedit'||act==='lyfetch') doLyAct(act);
 }
 /* ---- audio spectrum visualizer: real PCM via fb.GetAudioChunk -> FFT bars ----
    Three things separate a spectrum that looks designed from one that merely twitches, and all
@@ -192,7 +194,27 @@ function drawFsDefault(gr,bot){
 function drawFsLyrics(gr,bot){
   fsMiniNP(gr);
   loadLyrics();   // reload for the current track (fast: cached by track; reloads on track change)
-  if(noLyrics()){ tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,Math.round(H*0.45),W,40); return; }
+  if(noLyrics()){
+    var cy0=Math.round(H*0.42);
+    tC(gr,'No lyrics found',FONT.sect2,COL.text2,0,cy0,W,40);
+    tC(gr,lyfStatusText(),FONT.qName,COL.text3,0,cy0+46,W,24);
+    if(lyfState!=='busy' && NP){
+      var bw=200, bx=Math.round((W-bw)/2);
+      var hbF=dlgBtn(gr,bx,cy0+90,bw,38,'Fetch now',RGB(52,52,52),RGB(66,66,66),COL.text);
+      hbF.act='lyfetch'; HB_FS.push(hbF);
+      var hbA=dlgBtn(gr,bx,cy0+138,bw,38,'Add lyrics',RGB(52,52,52),RGB(66,66,66),COL.text);
+      hbA.act='lyedit'; HB_FS.push(hbA);
+    }
+    return;
+  }
+  /* Top right, level with the mini header on the left: the two together read as one header band,
+     and the lyric column between them is left alone. There is room here for the note on the same
+     line as the pill, which the narrow pane does not have. */
+  var ew=92, ex=W-64-ew, ey=84, lbl=lyBadgeLong();
+  var hbE=dlgBtn(gr,ex,ey,ew,30,'Edit',RGB(46,46,46),RGB(62,62,62),COL.text2);
+  hbE.act='lyedit'; HB_FS.push(hbE);
+  // always the long badge here: fullscreen is the whole window, so it has never not fitted
+  if(lbl) lyPill(gr,ex-12-lyPillW(gr,lbl),ey+Math.round((30-lyPillH(gr))/2),lbl);
   if(lyrics.synced) drawRollingLyrics(gr,140,165,W-280,bot,FONT.fsLyric,COL.green,'c');
   else drawStaticLyrics(gr,140,W-280,180,bot,FONT.fsLyric,0.4);
 }

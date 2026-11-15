@@ -24,6 +24,8 @@ var CFG_ROWS=[];
 function cfgRowAt(x,y){ return hitIdx(CFG_ROWS,x,y); }
 
 function cfgPct(s){ return Math.round(s*100)+'%'; }
+// Signed, because the sign is the whole meaning of this one and "200 ms" would not say which way.
+function cfgMs(ms){ return (ms>0?'+':'')+ms+' ms'; }
 /* Auto names the scale it actually resolved to. "Auto" alone leaves the one question a scale
    picker exists to answer -- what am I running at now -- unanswered. */
 function cfgScaleOpts(){
@@ -62,7 +64,14 @@ function cfgModel(){
      text:labelOf(CFG_CACHE_MB,ARTDISK_MB,ARTDISK_MB?fmtBytes(ARTDISK_MB*1048576):'No limit'),
      desc:'The most disk the cover cache may use. Over it, the covers you looked at longest ago go first.'},
     {k:'clear', label:'Cached artwork', kind:'button', btn:'Clear'+(artDiskUsage()?' ('+fmtBytes(artDiskUsage())+')':''),
-     enabled:artDiskUsage()>0, desc:artDiskUsageText()}
+     enabled:artDiskUsage()>0, desc:artDiskUsageText()},
+    {k:'lyrfetch', label:'Find lyrics online', kind:'switch', on:LYR_FETCH_ON, enabled:true,
+     desc:'Only for tracks with no .lrc beside them and none in their tags. Saves a .lrc next to the song.'},
+    /* A button row rather than a dropdown, because the useful value is a number the user arrives
+       at by ear and it is not one of five. The capsule shows the value and opens a text box; the
+       Properties dialog edits the same property, as it does for every other setting here. */
+    {k:'lyroffset', label:'Lyrics timing', kind:'button', btn:cfgMs(LY_OFFSET), enabled:true,
+     desc:'Shifts every lyric line. Positive shows them earlier, negative later.'}
   ];
 }
 
@@ -157,13 +166,38 @@ function cfgClickRow(row){
 function cfgToggle(k){
   if(k==='drp')        applyDrpOn(!DRP_ON);
   else if(k==='cache') applyArtDiskOn(!ARTDISK_ON);
+  else if(k==='lyrfetch') applyLyrFetchOn(!LYR_FETCH_ON);
   else repaintAll();
+}
+/* Free text, via the system input box. A number typed by ear wants to be typed, not chosen from a
+   list someone else guessed at -- and the one thing the dialog has to carry is the sign
+   convention, which is what the Help button is for.
+
+   Anything unparseable leaves the value alone rather than resetting it to zero: a typo should cost
+   a second attempt, not the setting. */
+function cfgAskOffset(){
+  var s=null;
+  try{ s=utils.InputBox(0,'Lyrics timing offset, in milliseconds:','Verdant -- lyrics timing',
+                        String(LY_OFFSET),true,
+                        'Positive values show each line EARLIER, negative values later. '+
+                        'The range is -30000 to 30000 ms. A file carrying its own [offset:] tag '+
+                        'is honoured as well, and the two add up.'); }
+  catch(e){ return; }   // cancelled
+  if(s===null) return;
+  s=String(s).replace(/\s|ms/gi,'');
+  if(!s){ applyLyrOffset(0); return; }
+  var v=parseFloat(s);
+  if(!isFinite(v)){ repaintAll(); return; }
+  applyLyrOffset(v);
 }
 /* Buttons, same keyed dispatch as the switches and the dropdowns. A full repaint rather than
    repaintMain: the label it was just clicked through is part of the row it sits in, and the row's
    description changes with it. */
 function cfgButton(k){
   if(k==='clear') artDiskClear();
+  else if(k==='lyroffset') cfgAskOffset();
+  // unconditional: the modal above covered the page, so the row under the pointer has to be redrawn
+  // whether the value changed or the dialog was cancelled
   repaintAll();
 }
 /* One entry point for every dropdown on the page: the key says which setting was picked, and

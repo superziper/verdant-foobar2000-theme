@@ -53,6 +53,7 @@ include('data/artdisk.js');
 include('data/library.js');
 include('data/playback.js');
 include('data/lyrics.js');
+include('data/lyrfetch.js');
 include('data/replaygain.js');
 include('data/discord.js');
 include('data/dedupe.js');

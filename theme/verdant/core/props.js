@@ -29,7 +29,9 @@ var PROP={
   wheel:'Scrolling: wheel step (px)',
   drp  :'Discord: show the playing track (1 = on)',
   cache:'Artwork: cache covers on disk (1 = on)',
-  cachemb:'Artwork: disk cache limit (MB, 0 = no limit)'
+  cachemb:'Artwork: disk cache limit (MB, 0 = no limit)',
+  lyrfetch:'Lyrics: fetch when missing (1 = on)',
+  lyroffset:'Lyrics: timing offset (ms)'
 };
 function propSet(name,val){ try{ window.SetProperty(name,val); }catch(e){} }
 
@@ -99,6 +101,26 @@ var ARTDISK_ON = propNum(PROP.cache, 1) > 0;
    and nothing else, so the JPEG quality is whatever GDI+ picks and cannot be tuned down from here.
    Clamped at 0, since a negative budget would evict everything on every write. */
 var ARTDISK_MB = Math.max(0, propNum(PROP.cachemb, 1024));
+
+/* Look lyrics up online when a track has NEITHER a .lrc/.txt beside it nor lyrics in its tags.
+   See data/lyrfetch.js. Both local sources are tried first and always win, so this only ever
+   fires on the tracks that would otherwise show "No lyrics found".
+
+   On by default, for the same reason the art cache is: it only acts where there is nothing to
+   lose, and the people it helps are the ones least likely to go looking for a switch. Off means
+   off -- no request is made, and the pane says so rather than pretending it looked. */
+var LYR_FETCH_ON = propNum(PROP.lyrfetch, 1) > 0;
+
+/* How far ahead of the audio the lyrics run, in milliseconds. Positive means the lines land
+   EARLIER, which is the sign convention the LRC [offset:] tag itself uses -- so a file carrying
+   its own offset and this setting pull the same way and simply add up.
+
+   0 by default: a correctly-timed file needs nothing, and a theme should not decide that your
+   lyrics are late. Free text rather than a preset list, because the value that feels right is
+   personal and lands wherever it lands. Clamped at 30 seconds, past which an offset is no longer
+   correcting a lyric. */
+var LY_OFFSET_MAX = 30000;
+var LY_OFFSET = Math.round(Math.max(-LY_OFFSET_MAX, Math.min(LY_OFFSET_MAX, propNum(PROP.lyroffset, 0))));
 
 /* ------------------------- live apply -------------------------
    One function per setting, each the single place that writes the property AND updates the
@@ -172,4 +194,24 @@ function applyArtDiskMB(mb){
   ARTDISK_MB=mb;
   artDiskEnforce();
   repaintMain();
+}
+/* Turning the fetcher OFF drops anything in flight, so the switch means what it says even while a
+   request is open. Turning it ON re-asks for the track on screen: the pane is very likely showing
+   "no lyrics" at this exact moment, and leaving it there until the next track change would read
+   as the switch having done nothing. */
+function applyLyrFetchOn(on){
+  propSet(PROP.lyrfetch,on?1:0);
+  LYR_FETCH_ON=!!on;
+  if(on) lyfRetry(); else lyfCancel();
+  repaintAll();
+}
+/* lySnap, because an offset change should land on the corrected line immediately. Without it the
+   roll GLIDES to the new position, which at a large correction is a long slow scroll that reads
+   as the panel having mistaken the click for something else. */
+function applyLyrOffset(ms){
+  ms=Math.round(Math.max(-LY_OFFSET_MAX,Math.min(LY_OFFSET_MAX,ms)));
+  propSet(PROP.lyroffset,ms);
+  LY_OFFSET=ms;
+  lySnap=true;
+  repaintAll();
 }

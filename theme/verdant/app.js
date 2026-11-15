@@ -73,7 +73,7 @@ function startScrollAnim(){ if(!scrollTimer) scrollTimer=window.SetInterval(scro
 function stopScrollAnim(){ if(scrollTimer){ window.ClearInterval(scrollTimer); scrollTimer=null; } }
 
 function hv(x0,y0,x1,y1){ return mx>=x0 && mx<x1 && my>=y0 && my<y1; }
-var HB_PL=[], HB_TR=[], HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[];
+var HB_PL=[], HB_TR=[], HB_CTRL=[], HB_TABS=[], HB_SEEK=null, HB_VOL=null, HB_Q=[], HB_LY=[];
 var HB_CARD=[], HB_HOME=null, HB_CAP=null, HB_MENU=[], SB=null;
 var navScroll=0, NAV_MAX=0, SBN=null, HB_ADDPL=null, navDropHover=false;
 // deferred "scroll this playlist into view" -- only drawNav knows the row geometry, so it consumes this
@@ -383,6 +383,8 @@ function on_mouse_lbtn_up(x,y){
     }
     return;
   }
+  // before the tabs: both live in the queue pane, and the lyrics strip sits just under the tab row
+  if((t=hit(HB_LY,x,y))){ doLyAct(t.act); return; }
   if((t=hit(HB_TABS,x,y))){ rightTab=t.tab; if(rightTab==='lyrics'){ loadLyrics(); lySnap=true; } else stopLyAnim(); repaintAll(); return; }
   if((t=hit(HB_CTRL,x,y))){ doCtrl(t.act); return; }
   if(HB_HOME && inRect(x,y,HB_HOME)){ view='home'; repaintAll(); return; }
@@ -458,6 +460,7 @@ function hoverSig(x,y){
   if(SB && inRect(x,y,SB)) return 'sb';
   if((i=cfgRowAt(x,y))>=0) return 'cfr'+i;
   if((i=hitIdx(HB_CTRL,x,y))>=0) return 'c'+i;
+  if((i=hitIdx(HB_LY,x,y))>=0) return 'ly'+i;
   if((i=hitIdx(HB_TABS,x,y))>=0) return 't'+i;
   if(HB_HOME && inRect(x,y,HB_HOME)) return 'h';
   if(HB_SEARCH && inRect(x,y,HB_SEARCH)) return 's';
@@ -602,6 +605,7 @@ function on_drag_drop(action,x,y,mask){
 function on_script_unload(){
   stopLyAnim(); stopCaret(); stopViz(); stopScrollAnim(); stopShimAnim(); stopMemWatch();
   artDiskFlush();   // the art index is written on a timer; make sure the last entries land
+  lyfFlush();       // same for the remembered lyrics misses
   if(dupWatch && dupWatch.timer) window.ClearTimeout(dupWatch.timer);
 }
 function invalidateLibrary(){
@@ -621,6 +625,21 @@ function on_library_items_added(){ libChanged(); }
    while it is certain. See data/artdisk.js. */
 function on_library_items_removed(handles){ artDiskDropHandles(handles); libChanged(); }
 function on_library_items_changed(handles){ artDiskDropHandles(handles); libChanged(); }
+
+/* The one network callback in the theme. JSplitter delivers every HTTPRequestAsync result here, so
+   this is a router rather than a handler: data/lyrfetch.js checks the task id against its own and
+   ignores anything that is not the request it is waiting for. */
+/* Caught here rather than inside: an exception out of a foobar callback ends the SCRIPT, which is
+   the whole panel. A lyric that failed to arrive is not worth a blank window, so the lane is
+   released and the pane simply goes back to saying there are none. */
+function on_http_request_done(task_id,success,response_text,status){
+  try{ lyfHttpDone(task_id,success,response_text,status); }
+  catch(e){
+    try{ console.log('Verdant: lyrics fetch -- reply handling failed ('+e+')'); }catch(e2){}
+    lyfCancel();
+    if(lyrShown()) repaintAll();
+  }
+}
 
 /* ------------------------- playback callbacks ------------------------- */
 function on_playback_new_track(){
@@ -643,8 +662,7 @@ function on_playback_stop(){ npChanged(); }
 function on_playback_pause(){ npChanged(); }
 function on_playback_time(){
   repaintBar();
-  var lyricsShown=(rightTab==='lyrics')||(fsMode&&fsView==='lyrics');
-  if(lyricsShown && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
+  if(lyrShown() && lyrics && lyrics!=='none' && lyrics.synced){ var c=currentLyricLine(); if(c!==lyCur){ lyCur=c; startLyAnim(); } }
 }
 function on_playback_seek(){ repaintAll(); }
 function on_playback_order_changed(){ syncOrderFromFb(); repaintAll(); }
