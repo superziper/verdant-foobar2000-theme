@@ -18,7 +18,7 @@ if (-not $OutDir) { $OutDir = Join-Path $repo 'dist' }
 
 # ---- version ----------------------------------------------------------------
 $mainJs = Get-Content (Join-Path $repo 'theme\verdant\main.js') -Raw
-if ($mainJs -notmatch "version\s*:\s*'([^']+)'") { throw "couldn't read version from theme\verdant\main.js" }
+if ($mainJs -notmatch "version\s*:\s*['""]([^'""]+)['""]") { throw "couldn't read version from theme\verdant\main.js" }
 $version = $Matches[1]
 Write-Host "Verdant v$version"
 

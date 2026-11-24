@@ -19,7 +19,7 @@
 // registered as an OLE drop target, so no on_drag_* fires
 window.DefineScript("Verdant", {
   author: "superziper",
-  version: "1.4.0",
+  version: "1.4.1",
   features: { drag_n_drop: true, grab_focus: true },
 });
 var DLGC_WANTALLKEYS = 0x0004; // capture ALL keys; applied only in Search view (see applyKeyMode)
