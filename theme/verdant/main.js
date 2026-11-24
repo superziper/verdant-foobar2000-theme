@@ -1,78 +1,75 @@
-'use strict';
+"use strict";
 
 /* ============================================================================
-   Verdant -- a Spotify-style theme for foobar2000, drawn from scratch in a
-   JSplitter panel (foo_uie_jsplitter, SpiderMonkey + GDI+).
+   Verdant -- a Spotify-style theme for foobar2000, drawn from scratch in a JSplitter
+   panel (foo_uie_jsplitter, SpiderMonkey + GDI+). Everything on screen is custom-drawn
+   and no stock foobar widgets are used.
 
-   Everything on screen is custom-drawn: sidebar, home, playlist and All Songs
-   views, search, queue/lyrics pane, player bar, fullscreen mode and the window
-   title bar. No stock foobar widgets are used.
-
-   This file is the entry point. It declares the panel, then loads the modules
-   below. They all share ONE global scope, so any module may call into any
-   other -- but anything evaluated at LOAD time has to come after what it
-   reads, and that is what fixes the order below. The whole theme also runs on
-   ONE thread shared with the UI, which is why so much of it is cached, sliced
-   across timer ticks, or scoped to a single panel's repaint.
+   This file declares the panel, then loads the modules below. They share ONE global
+   scope and ONE thread with the UI, which is why so much of the theme is cached or
+   sliced across timer ticks.
 
    Requires foobar2000 v2 (64-bit) + Columns UI + foo_uie_jsplitter.
    Optional: foo_ui_wizard, for the frameless window and custom title bar.
    See README.md for installation.
-
    Author: superziper
    ============================================================================ */
 
 // the key is `features`, not `options` -- without features.drag_n_drop the panel is never
 // registered as an OLE drop target, so no on_drag_* fires
-window.DefineScript('Verdant', { author:'superziper', version:'1.4.0', features:{ drag_n_drop:true, grab_focus:true } });
-var DLGC_WANTALLKEYS=0x0004;   // capture ALL keys; applied only in Search view (see applyKeyMode)
-var DLGC_WANTCHARS=0x0080;     // capture character keys only -- enough for Space = play/pause
+window.DefineScript("Verdant", {
+  author: "superziper",
+  version: "1.4.0",
+  features: { drag_n_drop: true, grab_focus: true },
+});
+var DLGC_WANTALLKEYS = 0x0004; // capture ALL keys; applied only in Search view (see applyKeyMode)
+var DLGC_WANTCHARS = 0x0080; // capture character keys only -- enough for Space = play/pause
 
 /* ---- load order ------------------------------------------------------------
-   Most of this is functions calling functions and would be order-free. These
-   edges are not -- they are evaluated the moment the module loads, and they are
-   the reason this is a list and not an alphabetical glob:
-     props       -> tokens      fonts are built from UISCALE the moment tokens loads
-     props       -> chrome      the title-bar height is derived from UISCALE too
-     memory      -> skeleton    the reveal gate's ceiling is derived from ART_CAP
-     tokens+util -> chrome      SW_OFFDIM bakes a blend of two palette colours
-     tokens+util -> fullscreen  VIZ_PEAK does the same
-   The last two are one rule rather than two special cases: anything that bakes
-   a colour constant at load needs COL and blend() to be there already.
-   Paths are relative to this file: JSplitter resolves include() against the
-   including script's own folder. */
-include('core/props.js');
-include('core/tokens.js');
-include('core/util.js');
-include('core/tf.js');
-include('core/memory.js');
-include('core/jobs.js');
+   Most of this is functions calling functions and would be order-free. These edges
+   are evaluated the moment the module loads, which is what fixes the order below.
 
-include('data/art.js');
-include('data/artdisk.js');
-include('data/library.js');
-include('data/playback.js');
-include('data/lyrics.js');
-include('data/lyrfetch.js');
-include('data/replaygain.js');
-include('data/discord.js');
-include('data/dedupe.js');
-include('data/playlist_edit.js');
+     props -> tokens        fonts are built from UISCALE the moment tokens loads
+     props -> chrome        the title-bar height is derived from UISCALE too
+     memory -> skeleton     the reveal gate's ceiling is derived from ART_CAP
+     tokens+util -> chrome  SW_OFFDIM bakes a blend of two palette colours
+     tokens+util -> fullscreen   VIZ_PEAK does the same
 
-include('ui/skeleton.js');
-include('ui/chrome.js');
+   The last two are one rule: anything baking a colour constant at load needs COL
+   and blend() already there. Paths are relative to this file, since JSplitter
+   resolves include() against the including script's own folder. */
+include("core/props.js");
+include("core/tokens.js");
+include("core/util.js");
+include("core/tf.js");
+include("core/memory.js");
+include("core/jobs.js");
 
-include('views/cards.js');
-include('views/nav.js');
-include('views/playlist.js');
-include('views/home.js');
-include('views/artist.js');
-include('views/songs.js');
-include('views/search.js');
-include('views/settings.js');
-include('views/queue.js');
-include('views/bar.js');
-include('views/fullscreen.js');
+include("data/art.js");
+include("data/artdisk.js");
+include("data/library.js");
+include("data/playback.js");
+include("data/lyrics.js");
+include("data/lyrfetch.js");
+include("data/replaygain.js");
+include("data/discord.js");
+include("data/dedupe.js");
+include("data/playlist_edit.js");
+
+include("ui/skeleton.js");
+include("ui/chrome.js");
+
+include("views/cards.js");
+include("views/nav.js");
+include("views/playlist.js");
+include("views/home.js");
+include("views/artist.js");
+include("views/songs.js");
+include("views/search.js");
+include("views/settings.js");
+include("views/queue.js");
+include("views/bar.js");
+include("views/fullscreen.js");
 
 // last: owns the panel state the views read, and registers every foobar callback
-include('app.js');
+include("app.js");
